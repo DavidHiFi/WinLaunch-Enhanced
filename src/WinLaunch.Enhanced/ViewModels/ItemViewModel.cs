@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -50,7 +51,8 @@ public sealed class ItemViewModel : INotifyPropertyChanged
     public void RefreshTarget()
     {
         ResolvedTarget = IsFolder ? null : _store.ResolveLinkTarget(Model.Application);
-        Broken = !IsFolder && ResolvedTarget == null;
+        Broken = !IsFolder && (ResolvedTarget == null ||
+            (!File.Exists(ResolvedTarget) && !System.IO.Directory.Exists(ResolvedTarget)));
     }
 
     public void LoadIcon()
@@ -58,7 +60,7 @@ public sealed class ItemViewModel : INotifyPropertyChanged
         _iconCts.Cancel();
         _iconCts = new CancellationTokenSource();
         var ct = _iconCts.Token;
-        Task.Run(async () =>
+        IconLoadTask = Task.Run(async () =>
         {
             var bmp = await IconService.GetIconAsync(Model, _store, _cacheDir, ct);
             if (ct.IsCancellationRequested)
@@ -75,6 +77,8 @@ public sealed class ItemViewModel : INotifyPropertyChanged
     {
         OnPropertyChanged(nameof(Name));
     }
+
+    public Task IconLoadTask { get; private set; } = Task.CompletedTask;
 
     public event PropertyChangedEventHandler PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string p = null) =>

@@ -3,13 +3,18 @@
 A ground-up rewrite of [WinLaunch](https://github.com/jensroth-git/WinLaunch)
 (MIT, (c) 2022 MrC0rrupted), modernized for Windows 11: .NET 8 WPF instead of
 .NET Framework 4.8, async cached icons, real acrylic, full keyboard operation,
-and a light theme next to the classic dark glass.
+and seven house themes (Catppuccin Mocha default) with a Solid/Acrylic/Mica
+backdrop selector.
 
 Screenshots below are rendered by `tools/PreviewRender` from the actual UI code
 and themes (sample entries, real extracted icons):
 
 ![WinLaunch Enhanced, dark theme](docs/preview-dark.png)
 ![WinLaunch Enhanced, light theme](docs/preview-light.png)
+
+Settings are grouped cards in the active house theme:
+
+![WinLaunch Enhanced settings](docs/settings-dark.png)
 
 ## Compatibility promise
 
@@ -30,8 +35,8 @@ folders with miniature composites, instant search across names, keywords and
 folder contents, global hotkey (your existing combo is picked up automatically),
 tray icon, add by file picker or drag-and-drop, rename, delete with confirm,
 drag reorder and drop-into-folder in Edit mode, move-to-page menu, settings
-window (grid size, hotkey, window placement, sorting, theme), dark and light
-themes, empty/loading/error states everywhere, full keyboard operation
+window (grid size, hotkey, window placement, sorting, theme), seven house themes (T3 Dark/Light, Catppuccin
+Mocha/Latte, Tokyo Night, Nord, Rose Pine) with Solid/Acrylic/Mica backdrop, full keyboard operation
 (arrows, Enter, F2, Delete, Ctrl+N, Ctrl+E, Esc with visible focus ring).
 
 ## What is intentionally not ported yet

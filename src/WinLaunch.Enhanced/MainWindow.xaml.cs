@@ -23,7 +23,7 @@ public partial class MainWindow : Window
     {
         _vm = vm;
         _compat = ThemeCompat.Load(Path.Combine(vm.Store.Directory, "CurrentTheme"));
-        ThemeManager.Apply(ThemeManager.LoadMode(vm.Store), vm.Store, _compat);
+        ThemeManager.Apply(ThemeManager.LoadThemeName(vm.Store), vm.Store, _compat);
         InitializeComponent();
         Board.Bind(vm);
         if (smoke)
@@ -88,9 +88,7 @@ public partial class MainWindow : Window
 
     private void Window_SourceInitialized(object sender, EventArgs e)
     {
-        if (_compat.WantBlur)
-            AcrylicHelper.EnableAcrylic(this);
-        ThemeManager.ApplyScrim(this, _compat);
+        ApplyComposition();
         var s = _vm.Settings;
         if (s.HotKeyEnabled)
         {
@@ -103,6 +101,14 @@ public partial class MainWindow : Window
                 $"Hotkey {DescribeHotkey()} could not be registered. The tray icon still works.",
                 WinForms.ToolTipIcon.Warning);
     }
+
+    private void ApplyComposition()
+    {
+        AcrylicHelper.ApplyComposition(this, ThemeManager.CurrentBackdrop, ThemeManager.IsDark());
+        ThemeManager.ApplyScrim(this, _compat);
+    }
+
+    public void ReapplyComposition() => ApplyComposition();
 
     private string DescribeHotkey()
     {
@@ -127,6 +133,7 @@ public partial class MainWindow : Window
     public void ShowOverlay()
     {
         PositionWindow();
+        ApplyComposition();
         Visibility = Visibility.Visible;
         Activate();
         BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1,

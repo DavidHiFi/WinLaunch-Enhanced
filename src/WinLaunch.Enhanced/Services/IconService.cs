@@ -123,7 +123,18 @@ public static class IconService
             if (File.Exists(direct))
                 return GetFileIcon(direct, cacheDir);
         }
-        var kids = (folder.Items ?? new List<ICItem>()).Where(k => !k.IsFolder).Take(4).ToList();
+        var kids = new List<(ICItem kid, string target)>();
+        foreach (var k in folder.Items ?? new List<ICItem>())
+        {
+            ct.ThrowIfCancellationRequested();
+            if (k.IsFolder)
+                continue;
+            var target = store.ResolveLinkTarget(k.Application);
+            if (target != null && (File.Exists(target) || Directory.Exists(target)))
+                kids.Add((k, target));
+            if (kids.Count == 4)
+                break;
+        }
         if (kids.Count == 0)
             return GetInitialTile(folder.Name);
         var visual = new DrawingVisual();
@@ -131,15 +142,12 @@ public static class IconService
         {
             ctx.DrawRectangle(new SolidColorBrush(TileColor()), null, new Rect(0, 0, 64, 64));
             int i = 0;
-            foreach (var kid in kids)
+            foreach (var (kid, target) in kids)
             {
                 ct.ThrowIfCancellationRequested();
-                var target = store.ResolveLinkTarget(kid.Application);
-                BitmapSource src = target != null
-                    ? GetFileIcon(target, cacheDir)
-                    : GetInitialTile(kid.Name, 30);
-                double x = (i % 2) * 32, y = (i / 2) * 32;
-                ctx.DrawImage(src, new Rect(x + 2, y + 2, 28, 28));
+                var src = GetFileIcon(target, cacheDir);
+                double x = (i % 2) * 32 + 1, y = (i / 2) * 32 + 1;
+                ctx.DrawImage(src, new Rect(x, y, 30, 30));
                 i++;
             }
         }

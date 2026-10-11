@@ -4,7 +4,7 @@
              Focusable="True">
   <UserControl.Resources>
     <DataTemplate x:Key="TileTemplate">
-      <Button Style="{DynamicResource TileButton}" Width="128" Height="128"
+      <Button Style="{DynamicResource TileButton}" Width="140" Height="140"
               HorizontalAlignment="Center" Margin="6"
               Click="Tile_Click" Tag="{Binding}"
               PreviewMouseLeftButtonDown="Tile_PreviewMouseDown"
@@ -18,11 +18,11 @@
           </ContextMenu>
         </Button.ContextMenu>
         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-          <Image Source="{Binding Icon}" Width="64" Height="64"
+          <Image Source="{Binding Icon}" Width="72" Height="72"
                  RenderOptions.BitmapScalingMode="HighQuality"/>
           <TextBlock Text="{Binding Name}" TextWrapping="Wrap" TextAlignment="Center"
-                     MaxWidth="112" MaxHeight="36" FontSize="12" Margin="0,6,0,0"
-                     TextTrimming="CharacterEllipsis"/>
+                     MaxWidth="124" MaxHeight="34" FontSize="12" Margin="0,8,0,0"
+                     TextTrimming="CharacterEllipsis" LineHeight="17"/>
         </StackPanel>
       </Button>
     </DataTemplate>
@@ -35,7 +35,7 @@
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <Grid Grid.Row="0" Width="420" HorizontalAlignment="Center" Margin="0,0,0,20">
+    <Grid Grid.Row="0" Width="460" HorizontalAlignment="Center" Margin="0,0,0,20">
       <TextBox x:Name="SearchBox" Style="{DynamicResource SearchBox}"
                TextChanged="SearchBox_TextChanged"/>
       <TextBlock x:Name="SearchHint" Text="Search apps and folders…"
@@ -45,7 +45,8 @@
 
     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">
-      <ItemsControl x:Name="TileGrid" ItemTemplate="{StaticResource TileTemplate}">
+      <ItemsControl x:Name="TileGrid" ItemTemplate="{StaticResource TileTemplate}"
+                    VerticalAlignment="Center">
         <ItemsControl.ItemsPanel>
           <ItemsPanelTemplate>
             <UniformGrid x:Name="PageGrid" Columns="10"/>
@@ -90,6 +91,8 @@
 
     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center"
                 Margin="0,16,0,0">
+      <TextBlock x:Name="ItemCount" Text="" FontSize="13" VerticalAlignment="Center"
+                 Margin="0,0,16,0" Foreground="{DynamicResource MutedBrush}"/>
       <StackPanel x:Name="PageDots" Orientation="Horizontal" VerticalAlignment="Center"/>
       <Button Content="Add" Margin="16,0,0,0" Click="Add_Click" Padding="16,4"
               Style="{DynamicResource TileButton}" Height="34" FontSize="13"/>
@@ -104,15 +107,19 @@
 
     <!-- Folder sheet -->
     <Border x:Name="FolderSheet" Grid.Row="0" Grid.RowSpan="3" Visibility="Collapsed"
-            Background="{DynamicResource ScrimBrush}" CornerRadius="12" Padding="24"
-            HorizontalAlignment="Center" VerticalAlignment="Center" MinWidth="520">
+            Background="{DynamicResource CardBrush}"
+            BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
+            CornerRadius="18" Padding="28"
+            HorizontalAlignment="Center" VerticalAlignment="Center" MinWidth="560">
       <StackPanel>
         <StackPanel Orientation="Horizontal">
-          <TextBlock x:Name="FolderTitle" Text="" FontSize="20"
+          <TextBlock x:Name="FolderTitle" Text="" FontSize="20" FontWeight="SemiBold"
                      Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center"/>
           <Button Content="Close" Margin="24,0,0,0" Click="FolderClose_Click"
                   Padding="16,4" Style="{DynamicResource TileButton}" Height="34" FontSize="13"/>
         </StackPanel>
+        <TextBlock x:Name="FolderCount" Text="" FontSize="13" Margin="0,4,0,0"
+                   Foreground="{DynamicResource MutedBrush}"/>
         <ScrollViewer MaxHeight="480" Margin="0,16,0,0">
           <ItemsControl x:Name="FolderGrid" ItemTemplate="{StaticResource TileTemplate}">
             <ItemsControl.ItemsPanel>

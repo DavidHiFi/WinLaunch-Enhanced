@@ -13,6 +13,7 @@ public partial class App : System.Windows.Application
     {
         base.OnStartup(e);
 
+        ThemeManager.EnsureStyles();
         _single = new Mutex(true, "WinLaunch.Enhanced.SingleInstance", out bool owned);
         if (!owned)
         {

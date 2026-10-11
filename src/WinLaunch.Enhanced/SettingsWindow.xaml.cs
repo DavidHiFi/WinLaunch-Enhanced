@@ -36,10 +36,10 @@ public partial class SettingsWindow : Window
         ShiftBox.IsChecked = s.HotShift;
         WinBox.IsChecked = s.HotWin;
         HotKeyBox.Text = s.HotKeyExtend;
-        if (ThemeManager.CurrentMode == "Light")
-            LightRadio.IsChecked = true;
-        else
-            DarkRadio.IsChecked = true;
+        ThemeCombo.ItemsSource = Theme.Themes.All.Keys.ToList();
+        ThemeCombo.SelectedItem = ThemeManager.CurrentTheme;
+        BackdropCombo.ItemsSource = new List<string> { "Solid", "Acrylic", "Mica" };
+        BackdropCombo.SelectedItem = ThemeManager.CurrentBackdrop;
         VersionText.Text = $"WinLaunch Enhanced 1.0.0. Data: {vm.Store.Directory}. " +
             $"Your original WinLaunch reads the same files.";
     }
@@ -84,7 +84,11 @@ public partial class SettingsWindow : Window
             HotKeyBox.Text = s.HotKeyExtend;
         }
         _vm.SaveSettings();
-        ThemeManager.Apply(LightRadio.IsChecked == true ? "Light" : "Dark", _vm.Store, _compat);
+        var newTheme = ThemeCombo.SelectedItem as string ?? ThemeManager.CurrentTheme;
+        var newBackdrop = BackdropCombo.SelectedItem as string ?? ThemeManager.CurrentBackdrop;
+        ThemeManager.Apply(newTheme, _vm.Store, _compat);
+        ThemeManager.SaveBackdrop(_vm.Store, newBackdrop);
+        (Owner as MainWindow)?.ReapplyComposition();
         _vm.Reload();
         Close();
     }

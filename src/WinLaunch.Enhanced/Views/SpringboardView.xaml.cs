@@ -25,6 +25,7 @@ using WpfOpenFileDialog = Microsoft.Win32.OpenFileDialog;
 using Key = System.Windows.Input.Key;
 using MenuItem = System.Windows.Controls.MenuItem;
 using ContextMenu = System.Windows.Controls.ContextMenu;
+using System.Windows.Media.Animation;
 
 namespace WinLaunch.Enhanced.Views;
 
@@ -38,6 +39,7 @@ public partial class SpringboardView : UserControl
 
     private System.Windows.Point _dragStart;
     private ItemViewModel _dragItem;
+    private int _lastPage = -1;
 
     public SpringboardView()
     {
@@ -102,6 +104,14 @@ public partial class SpringboardView : UserControl
         EmptyState.Visibility = empty && !searching ? Visibility.Visible : Visibility.Collapsed;
         TileGrid.Visibility = empty || VM.IsLoading || VM.LoadError != null
             ? Visibility.Collapsed : Visibility.Visible;
+        int nested = VM.TopItems.Where(i => i.IsFolder).Sum(i => i.Children.Count);
+        ItemCount.Text = $"{VM.TopItems.Count} groups · {nested} apps";
+        if (VM.CurrentPage != _lastPage)
+        {
+            _lastPage = VM.CurrentPage;
+            TileGrid.BeginAnimation(OpacityProperty,
+                new DoubleAnimation(0.35, 1, new Duration(TimeSpan.FromMilliseconds(120))));
+        }
         RefreshDots();
     }
 
@@ -159,6 +169,7 @@ public partial class SpringboardView : UserControl
     {
         ActiveFolder = folder;
         FolderTitle.Text = folder.Name;
+        FolderCount.Text = $"{folder.Children.Count} apps";
         FolderGrid.ItemsSource = folder.Children;
         FolderSheet.Visibility = Visibility.Visible;
     }
@@ -499,19 +510,28 @@ public partial class SpringboardView : UserControl
         var win = new Window
         {
             Title = title,
-            Width = 360,
-            Height = 160,
+            Width = 380,
+            Height = 180,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
+            Background = TryBrush("SolidBgBrush"),
+            Foreground = TryBrush("TextBrush"),
         };
-        var panel = new StackPanel { Margin = new Thickness(16) };
-        panel.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 0, 0, 8) });
+        var panel = new StackPanel { Margin = new Thickness(20) };
+        panel.Children.Add(new TextBlock
+        {
+            Text = label, Margin = new Thickness(0, 0, 0, 10),
+            Foreground = TryBrush("TextBrush"), FontSize = 13,
+        });
         var box = new TextBox { Text = initial };
+        box.SetResourceReference(StyleProperty, "SearchBox");
         box.SelectAll();
         panel.Children.Add(box);
-        var row = new StackPanel { Orientation = WpfOrientation.Horizontal, HorizontalAlignment = WpfHAlign.Right, Margin = new Thickness(0, 12, 0, 0) };
-        var ok = new Button { Content = "OK", Width = 80, IsDefault = true, Margin = new Thickness(0, 0, 8, 0) };
-        var cancel = new Button { Content = "Cancel", Width = 80, IsCancel = true };
+        var row = new StackPanel { Orientation = WpfOrientation.Horizontal, HorizontalAlignment = WpfHAlign.Right, Margin = new Thickness(0, 16, 0, 0) };
+        var ok = new Button { Content = "OK", Width = 90, Height = 36, IsDefault = true, Margin = new Thickness(0, 0, 8, 0) };
+        ok.SetResourceReference(StyleProperty, "PrimaryButton");
+        var cancel = new Button { Content = "Cancel", Width = 90, Height = 36, IsCancel = true };
+        cancel.SetResourceReference(StyleProperty, "TileButton");
         string result = null;
         ok.Click += (_, _) => { result = box.Text.Trim(); win.Close(); };
         row.Children.Add(ok);
@@ -520,5 +540,17 @@ public partial class SpringboardView : UserControl
         win.Content = panel;
         win.ShowDialog();
         return string.IsNullOrEmpty(result) ? null : result;
+    }
+
+    private static System.Windows.Media.Brush TryBrush(string key)
+    {
+        try
+        {
+            var app = System.Windows.Application.Current;
+            if (app?.Resources[key] is System.Windows.Media.Brush b)
+                return b;
+        }
+        catch { }
+        return System.Windows.Media.Brushes.Transparent;
     }
 }

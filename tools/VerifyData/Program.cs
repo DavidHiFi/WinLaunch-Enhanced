@@ -20,16 +20,18 @@ foreach (var item in items)
         foreach (var child in item.Items ?? new List<ICItem>())
         {
             var target = store.ResolveLinkTarget(child.Application);
-            if (target == null) { broken++; Console.WriteLine($"  BROKEN \"{child.Name}\" -> {child.Application}"); }
+            if (target == null || (!File.Exists(target) && !Directory.Exists(target)))
+            { broken++; Console.WriteLine($"  BROKEN \"{child.Name}\" -> {child.Application} (target: {target ?? "unresolvable"})"); }
         }
     }
     else
     {
         apps++;
-        if (store.ResolveLinkTarget(item.Application) == null)
+        var target = store.ResolveLinkTarget(item.Application);
+        if (target == null || (!File.Exists(target) && !Directory.Exists(target)))
         {
             broken++;
-            Console.WriteLine($"BROKEN \"{item.Name}\" -> {item.Application}");
+            Console.WriteLine($"BROKEN \"{item.Name}\" -> {item.Application} (target: {target ?? "unresolvable"})");
         }
     }
 }

@@ -14,18 +14,44 @@ in a dark frosted-glass desktop-utility language. Dials: **ENERGY 2 / RHYTHM 2 /
 
 ## Palette (measured, not eyeballed)
 
-| Token | Value | Use | Contrast evidence |
-|---|---|---|---|
-| `--bg-scrim` | `#0B0F14` | overlay scrim over dimmed wallpaper | base |
-| `--tile` | `#1A222C` | app/folder tiles | — |
-| `--text` | `#FFFFFF` | tile labels, headings | 19.22:1 on scrim, 16.04:1 on tile (PASS) |
-| `--text-muted` | `#9AA7B4` | counts, hints, search placeholder | 7.83:1 on scrim (PASS) |
-| `--accent` | `#14B8A6` | one deliberate accent: selection ring, search focus, active page dot | 7.72:1 on scrim (PASS normal text) |
-| `--accent-ink` | `#0B0F14` | text on accent fills | 7.72:1 (PASS) |
-| `--warn` | `#EA580C` dark / `#C2410C` light | delete/remove confirm fill only, never body text | black on dark-fill 5.90:1, white on light-fill 5.18:1 (both PASS) |
+House theme roles shared with FreeDictate (`bg card field hover press text sub
+accent on_accent accent_hover warn`), shipped for all seven themes so every
+house app speaks one language. Default: **Catppuccin Mocha**.
 
-Accent appears in at most three places per screen (ring, focus, dot). Tiles stay matte;
-no page-wide gradient, no glass-everywhere (glass is the scrim only).
+| Token | Mocha value | Use | Contrast evidence |
+|---|---|---|---|
+| `bg` | `#1E1E2E` | overlay scrim over blurred wallpaper, 0.75 alpha | base |
+| `card` | `#313244` | tiles, folder sheet, settings groups, all solid | — |
+| `field` | `#45475A` | search box, settings inputs | — |
+| `hover` / `press` | `#45475A` / `#585B70` | tile and button states | state only, never text-bearing alone |
+| `text` | `#CDD6F4` | labels, headings | 8.69:1 on card, 11.34:1 on bg (PASS) |
+| `sub` | `#BAC2DE` | counts, hints, placeholders | 7.10:1 on card, 9.26:1 on bg (PASS) |
+| `accent` | `#89B4FA` | one deliberate accent: focus ring, active page dot, primary buttons | 7.79:1 on bg (PASS) |
+| `on_accent` | `#1E1E2E` | text on accent fills | 7.79:1 (PASS) |
+| `warn` | `#F38BA8` | delete confirm text | 7.08:1 on bg (PASS) |
+
+All seven themes check at 4.70:1 or better across every text-bearing pair, with
+two documented exceptions: Latte accent `#1E66F5` on bg is 4.34:1, so in Latte
+the accent is restricted to non-text roles (ring, dots; 3:1 bar clears easily),
+and Nord warn is the yellow `#EBCB8B` because its red fails body text. Tile and
+card edges use `CardBorder` (one step above card), never glow. Full pair list
+is in the session notes.
+
+## Backdrop and layers
+
+Backdrop selector mirrors FreeDictate: Solid, Acrylic, Mica via
+`DWMWA_SYSTEMBACKDROP_TYPE`, legacy acrylic accent as fallback, immersive dark
+mode follows the theme, accent re-applied on every show with a forced
+recomposite. One translucent layer only: the window scrim carries the tint and
+every inner surface (tiles, sheet, dialogs) is solid card. A translucent sheet
+over a translucent scrim reads as a hard rectangle, so the folder sheet is
+solid with a 1px border instead.
+
+## Radius scale
+
+Tiles 14, folder sheet 18, fields and buttons 10, dropdown items 6. Nothing
+pill-shaped except the page dots. The scale is a hierarchy tool: bigger surface,
+bigger radius.
 
 Light theme mirrors the set (paper `#F4F6F8`, ink `#10161C`, same teal darkened to `#0B7C6F`
 for 4.5:1+ on paper). Both themes ship, both get rendered in the preview step.

@@ -4,11 +4,21 @@ using System.Windows.Interop;
 
 namespace WinLaunch.Enhanced.Services;
 
-// Windows 11 acrylic backdrop behind the overlay. If composition fails for any
-// reason the theme scrim stays as the solid fallback; the overlay never depends
-// on blur to be readable (all text pairs pass on the flat scrim alone).
+// Window composition: DWM system backdrop first (Solid/Acrylic/Mica, like the
+// other house apps), legacy acrylic accent as fallback, forced recomposite
+// after every change. Re-applied on every show because the live accent dies
+// on window recreate; the theme scrim stays readable on its own if all else
+// fails, so text never depends on blur.
 public static class AcrylicHelper
 {
+    private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    private const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
+    private const int DWMSBT_NONE = 1;
+    private const int DWMSBT_MICA = 2;
+    private const int DWMSBT_ACRYLIC = 3;
+
+    private const uint SWP_FLAGS = 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020; // NOSIZE|NOMOVE|NOZORDER|NOACTIVATE|FRAMECHANGED
+
     private enum AccentState { Disabled = 0, EnableAcrylicBlurBehind = 4 }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -28,21 +38,73 @@ public static class AcrylicHelper
         public int SizeOfData;
     }
 
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
     [DllImport("user32.dll")]
     private static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
 
-    public static bool EnableAcrylic(Window window, byte opacity = 0x99)
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+        int x, int y, int cx, int cy, uint uFlags);
+
+    public static void ApplyComposition(Window window, string backdrop, bool dark, uint tintArgb = 0xC01E1E2E)
+    {
+        try
+        {
+            var handle = new WindowInteropHelper(window).Handle;
+            if (handle == IntPtr.Zero)
+                return;
+            int darkMode = dark ? 1 : 0;
+            try { DwmSetWindowAttribute(handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int)); }
+            catch { }
+            bool backdropSet = false;
+            if (backdrop != "Solid")
+            {
+                int type = backdrop == "Mica" ? DWMSBT_MICA : DWMSBT_ACRYLIC;
+                try { backdropSet = DwmSetWindowAttribute(handle, DWMWA_SYSTEMBACKDROP_TYPE, ref type, sizeof(int)) == 0; }
+                catch { }
+            }
+            else
+            {
+                try
+                {
+                    int none = DWMSBT_NONE;
+                    DwmSetWindowAttribute(handle, DWMWA_SYSTEMBACKDROP_TYPE, ref none, sizeof(int));
+                }
+                catch { }
+            }
+            if (backdrop != "Solid" && !backdropSet)
+                EnableAcrylic(handle, tintArgb);
+            ForceRecomposite(handle);
+        }
+        catch { }
+    }
+
+    public static bool EnableAcrylic(Window window, uint tintArgb = 0xC01E1E2E)
     {
         try
         {
             var handle = new WindowInteropHelper(window).Handle;
             if (handle == IntPtr.Zero)
                 return false;
+            return EnableAcrylic(handle, tintArgb);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool EnableAcrylic(IntPtr handle, uint tintArgb)
+    {
+        try
+        {
             var accent = new AccentPolicy
             {
                 AccentState = AccentState.EnableAcrylicBlurBehind,
                 AccentFlags = 0,
-                GradientColor = (uint)((opacity << 24) | 0x0B0F14),
+                GradientColor = tintArgb,
                 AnimationId = 0,
             };
             var ptr = Marshal.AllocHGlobal(Marshal.SizeOf(accent));
@@ -66,5 +128,11 @@ public static class AcrylicHelper
         {
             return false;
         }
+    }
+
+    private static void ForceRecomposite(IntPtr handle)
+    {
+        try { SetWindowPos(handle, IntPtr.Zero, 0, 0, 0, 0, SWP_FLAGS); }
+        catch { }
     }
 }
