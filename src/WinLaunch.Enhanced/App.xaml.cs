@@ -32,6 +32,8 @@ public partial class App : System.Windows.Application
         var window = new MainWindow(vm);
         MainWindow = window;
         window.HideToTray();
+        if (e.Args.Any(a => a == "--show"))
+            window.ShowOverlay();
     }
 
     // Headless startup check: builds the real view-model and window offscreen,
