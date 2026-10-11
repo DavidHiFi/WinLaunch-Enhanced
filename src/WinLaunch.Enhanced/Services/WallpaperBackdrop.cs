@@ -23,6 +23,7 @@ public static class WallpaperBackdrop
 
     private static string _cachedPath;
     private static DateTime _cachedStamp;
+    private static double _cachedRadius;
     private static BitmapSource _cached;
 
     public static string CurrentPath()
@@ -42,7 +43,7 @@ public static class WallpaperBackdrop
 
     // Returns null when there is no readable wallpaper (solid color desktops);
     // the caller then shows the theme background.
-    public static BitmapSource GetBlurred(string path = null)
+    public static BitmapSource GetBlurred(string path = null, double radius = 28)
     {
         path ??= CurrentPath();
         if (path == null)
@@ -50,7 +51,8 @@ public static class WallpaperBackdrop
         try
         {
             var stamp = File.GetLastWriteTimeUtc(path);
-            if (_cached != null && path == _cachedPath && stamp == _cachedStamp)
+            radius = Math.Clamp(radius, 0, 80);
+            if (_cached != null && path == _cachedPath && stamp == _cachedStamp && radius == _cachedRadius)
                 return _cached;
 
             var img = new BitmapImage();
@@ -73,7 +75,7 @@ public static class WallpaperBackdrop
             {
                 Width = w + 80, Height = h + 80, Margin = new Thickness(-40),
                 Fill = new ImageBrush(img) { Stretch = Stretch.UniformToFill },
-                Effect = new BlurEffect { Radius = 28, KernelType = KernelType.Gaussian },
+                Effect = radius > 0 ? new BlurEffect { Radius = radius, KernelType = KernelType.Gaussian } : null,
             };
             host.Children.Add(rect);
             host.Measure(new Size(w, h));
@@ -84,6 +86,7 @@ public static class WallpaperBackdrop
             _cached = rtb;
             _cachedPath = path;
             _cachedStamp = stamp;
+            _cachedRadius = radius;
             return rtb;
         }
         catch

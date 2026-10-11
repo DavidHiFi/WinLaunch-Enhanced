@@ -4,9 +4,19 @@ A ground-up rewrite of [WinLaunch](https://github.com/jensroth-git/WinLaunch)
 (MIT, (c) 2022 MrC0rrupted), modernized for Windows 11. It keeps the original
 Launchpad look: your wallpaper blurred behind floating icons, glass folders
 with a 3x3 preview of their apps, a search pill at the top and page dots at
-the bottom. Underneath it is .NET 8 WPF instead of .NET Framework 4.8, with
+the bottom. Underneath it is .NET 10 WPF instead of .NET Framework 4.8, with
 256 px shell icons, async icon caching and seven house themes
-(Catppuccin Mocha default).
+(Catppuccin Mocha default). Labels default to FiraCode Nerd Font; any installed
+font works, set it in Appearance along with text scale and label shadow.
+
+## Install
+
+Grab `WinLaunchEnhanced-2.0.0-Setup.exe` from the
+[latest release](https://github.com/DavidHiFi/WinLaunch-Enhanced/releases/latest).
+The installer sets up Start-menu and desktop shortcuts, adds run-at-sign-in,
+checks the .NET 10 Desktop Runtime for you, and offers to launch the launcher
+right away. Uninstall any time from Windows Settings; your WinLaunch data is
+never touched.
 
 Screenshots below are rendered by `tools/PreviewRender` from the actual UI code
 (sample entries, real extracted icons, a generated stand-in wallpaper):
@@ -15,9 +25,11 @@ Screenshots below are rendered by `tools/PreviewRender` from the actual UI code
 ![An open folder](docs/preview-dark-folder.png)
 ![WinLaunch Enhanced, light theme](docs/preview-light.png)
 
-Settings are grouped cards in the active house theme:
+Settings are grouped cards in the active house theme, one tab per concern:
 
-![WinLaunch Enhanced settings](docs/settings-dark.png)
+![General settings tab](docs/settings-dark-general.png)
+![Appearance settings tab](docs/settings-dark-appearance.png)
+![Layout settings tab](docs/settings-dark-layout.png)
 
 ## Compatibility promise
 
@@ -49,15 +61,19 @@ same place (`%APPDATA%\WinLaunch`, or beside the exe for portable installs):
   menu button for add apps, new folder, edit layout and settings.
 - Global hotkey (your existing combo is picked up), tray icon, add by file
   picker or drag-and-drop, dead links shown dimmed.
+- Search does quick arithmetic (type `12*4.5`) and falls back to your web
+  search engine, both toggleable. Result ranking can follow your launch counts.
 - Seven house themes: T3 Dark/Light, Catppuccin Mocha/Latte, Tokyo Night,
   Nord, Rose Pine. Animations follow the Windows "animation effects" setting.
+- Stays out of fullscreen apps and games, and can open from a hot corner
+  (top-left, top-right, bottom-left, bottom-right, any combination).
 
 ## What is not ported yet
 
-Block-on-fullscreen, hot corners, double-tap and middle-mouse activation,
-gamepad and voice activation, desktop-link watcher, custom background images,
-the update checker, languages other than English and autostart setup.
-Contributions welcome; see DESIGN.md for the visual direction.
+Double-tap and middle-mouse activation, gamepad and voice activation,
+desktop-link watcher, custom background images, the update checker and
+languages other than English. Contributions welcome; see DESIGN.md for the
+visual direction.
 
 ## Build and run
 

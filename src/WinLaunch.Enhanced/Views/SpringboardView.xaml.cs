@@ -135,7 +135,7 @@ public partial class SpringboardView : UserControl
         Resources["TileCellHeight"] = cellH;
         Resources["TileIconSize"] = icon;
         Resources["TileLabelWidth"] = Math.Max(40, cellW - 14);
-        Resources["TileFontSize"] = Math.Clamp(Math.Round(11.5 + icon / 40, 1), 12, 15);
+        Resources["TileFontSize"] = Math.Round(Math.Clamp(11.5 + icon / 40, 12, 15) * ThemeManager.TextScale, 1);
     }
 
     private void PageHost_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateTileMetrics();
@@ -272,7 +272,7 @@ public partial class SpringboardView : UserControl
         }
         if (VM.EditMode)
             SetEditMode(false);
-        else
+        else if (FolderLayer.Visibility != Visibility.Visible && VM.Prefs.HideOnEmptyClick)
             OverlayShouldHide?.Invoke();
     }
 
@@ -302,7 +302,9 @@ public partial class SpringboardView : UserControl
         try
         {
             LauncherService.Launch(item.Model, VM.Store, asAdmin);
-            OverlayShouldHide?.Invoke();
+            VM.Prefs.CountLaunch(MainViewModel.UseKey(item));
+            if (VM.Prefs.CloseOnLaunch)
+                OverlayShouldHide?.Invoke();
         }
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
@@ -411,7 +413,37 @@ public partial class SpringboardView : UserControl
         UpdateSearchChrome();
         VM.SearchText = SearchBox.Text;
         VM.RefreshSearch();
+        var calc = VM.Prefs.Calculator ? Calculator.TryEvaluate(SearchBox.Text) : null;
+        CalcText.Text = calc ?? "";
+        CalcChip.Visibility = calc != null ? Visibility.Visible : Visibility.Collapsed;
+        WebSearchText.Text = $"Search the web for \u201C{SearchBox.Text.Trim()}\u201D";
+        WebSearchButton.Visibility = VM.Prefs.WebSearch ? Visibility.Visible : Visibility.Collapsed;
         Refresh();
+    }
+
+    private void CalcChip_Click(object sender, MouseButtonEventArgs e) => CopyCalc();
+
+    private void CopyCalc()
+    {
+        try { System.Windows.Clipboard.SetText(CalcText.Text); } catch { }
+        if (VM.Prefs.CloseOnLaunch)
+            OverlayShouldHide?.Invoke();
+    }
+
+    private void WebSearch_Click(object sender, RoutedEventArgs e) => WebSearch();
+
+    private void WebSearch()
+    {
+        var q = SearchBox.Text.Trim();
+        if (q.Length == 0)
+            return;
+        try
+        {
+            var url = string.Format(VM.Prefs.WebSearchUrl, Uri.EscapeDataString(q));
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            OverlayShouldHide?.Invoke();
+        }
+        catch { }
     }
 
     private void SearchBox_FocusChanged(object sender, KeyboardFocusChangedEventArgs e) => UpdateSearchChrome();
@@ -457,6 +489,19 @@ public partial class SpringboardView : UserControl
         if (FolderTitle.IsKeyboardFocused)
             return;
         bool inSearch = SearchBox.IsKeyboardFocused;
+        if (e.Key == Key.Enter && inSearch && CalcChip.Visibility == Visibility.Visible)
+        {
+            CopyCalc();
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.Enter && inSearch && SearchBox.Text.Trim().Length > 0 &&
+            VM.SearchResults.Count == 0 && VM.Prefs.WebSearch)
+        {
+            WebSearch();
+            e.Handled = true;
+            return;
+        }
         if (e.Key == Key.Enter && inSearch && VM.SearchResults.Count > 0)
         {
             var top = VM.SearchResults[0];
@@ -585,6 +630,7 @@ public partial class SpringboardView : UserControl
         var menu = BuildBoardMenu();
         menu.PlacementTarget = MenuButton;
         menu.Placement = PlacementMode.Bottom;
+        menu.HorizontalOffset = -190;
         menu.IsOpen = true;
     }
 
@@ -598,21 +644,22 @@ public partial class SpringboardView : UserControl
         Root.ContextMenu = BuildBoardMenu();
     }
 
-    private ContextMenu BuildBoardMenu()
+    public ContextMenu BuildBoardMenu()
     {
         var menu = new ContextMenu();
-        menu.Items.Add(Item("Add apps…", () => Add_Click(null, null)));
-        menu.Items.Add(Item("New folder", NewFolder, "Ctrl+N"));
-        menu.Items.Add(Item(VM.EditMode ? "Done editing" : "Edit layout", () => SetEditMode(!VM.EditMode), "Ctrl+E"));
+        menu.Items.Add(Item("Add apps…", () => Add_Click(null, null), null, "\uE710"));
+        menu.Items.Add(Item("New folder", NewFolder, "Ctrl+N", "\uE8F4"));
+        menu.Items.Add(Item(VM.EditMode ? "Done editing" : "Edit layout", () => SetEditMode(!VM.EditMode), "Ctrl+E",
+            VM.EditMode ? "\uE73E" : "\uE70F"));
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Settings", () => OpenSettings?.Invoke(), "Ctrl+,"));
-        menu.Items.Add(Item("Hide", () => OverlayShouldHide?.Invoke(), "Esc"));
+        menu.Items.Add(Item("Settings", () => OpenSettings?.Invoke(), "Ctrl+,", "\uE713"));
+        menu.Items.Add(Item("Hide launcher", () => OverlayShouldHide?.Invoke(), "Esc", "\uE711"));
         return menu;
     }
 
-    private static MenuItem Item(string header, Action click, string gesture = null)
+    private static MenuItem Item(string header, Action click, string gesture = null, string glyph = null)
     {
-        var mi = new MenuItem { Header = header, InputGestureText = gesture };
+        var mi = new MenuItem { Header = header, InputGestureText = gesture, Icon = glyph };
         mi.Click += (_, _) => click();
         return mi;
     }
@@ -621,24 +668,30 @@ public partial class SpringboardView : UserControl
     {
         if (sender is not Button b || b.Tag is not ItemViewModel item)
             return;
+        b.ContextMenu = BuildTileMenu(item);
+    }
+
+    public ContextMenu BuildTileMenu(ItemViewModel item)
+    {
         var menu = new ContextMenu();
         bool inFolder = ActiveFolder != null && ActiveFolder.Children.Contains(item);
-        menu.Items.Add(Item("Open", () => Tile_Click(new Button { Tag = item }, null)));
+        menu.Items.Add(Item("Open", () => Tile_Click(new Button { Tag = item }, null), "Enter",
+            item.IsFolder ? "\uE838" : "\uE768"));
         if (!item.IsFolder)
         {
-            menu.Items.Add(Item("Run as administrator", () => Launch(item, true)));
+            menu.Items.Add(Item("Run as administrator", () => Launch(item, true), null, "\uE7EF"));
             if (item.ResolvedTarget != null)
-                menu.Items.Add(Item("Open file location", () => RevealInExplorer(item.ResolvedTarget)));
+                menu.Items.Add(Item("Open file location", () => RevealInExplorer(item.ResolvedTarget), null, "\uED25"));
         }
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Rename", () => RenameItem(item), "F2"));
+        menu.Items.Add(Item("Rename", () => RenameItem(item), "F2", "\uE8AC"));
         if (inFolder)
         {
-            menu.Items.Add(Item("Move out of folder", () => MoveOutOfFolder(item)));
+            menu.Items.Add(Item("Move out of folder", () => MoveOutOfFolder(item), null, "\uE8DE"));
         }
         else
         {
-            var move = new MenuItem { Header = "Move to page" };
+            var move = new MenuItem { Header = "Move to page", Icon = "\uE8AB" };
             int pages = Math.Max(VM.PageCount, item.Model.Page + 1) + 1;
             for (int p = 0; p < pages; p++)
             {
@@ -654,8 +707,10 @@ public partial class SpringboardView : UserControl
             menu.Items.Add(move);
         }
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item(item.IsFolder ? "Remove folder" : "Remove", () => RemoveItem(item), "Del"));
-        b.ContextMenu = menu;
+        var remove = Item(item.IsFolder ? "Remove folder" : "Remove from launcher", () => RemoveItem(item), "Del", "\uE74D");
+        remove.Tag = "danger";
+        menu.Items.Add(remove);
+        return menu;
     }
 
     private void RevealInExplorer(string path)

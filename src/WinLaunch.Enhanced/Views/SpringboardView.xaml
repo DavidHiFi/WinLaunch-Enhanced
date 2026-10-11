@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:WinLaunch.Enhanced.Views"
              xmlns:sys="clr-namespace:System;assembly=System.Runtime"
-             Focusable="True">
+             Focusable="True" FontFamily="{DynamicResource UiFont}">
   <UserControl.Resources>
     <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
@@ -59,12 +59,7 @@
       <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
       <Setter Property="TextWrapping" Value="NoWrap"/>
       <Setter Property="Margin" Value="0,9,0,0"/>
-      <Setter Property="Effect">
-        <Setter.Value>
-          <DropShadowEffect ShadowDepth="1" BlurRadius="5" Opacity="0.85"
-                            Color="{DynamicResource LabelShadowColor}"/>
-        </Setter.Value>
-      </Setter>
+      <Setter Property="Effect" Value="{DynamicResource LabelEffect}"/>
     </Style>
 
     <DataTemplate x:Key="AppTileTemplate">
@@ -215,6 +210,16 @@
                    GotKeyboardFocus="SearchBox_FocusChanged" LostKeyboardFocus="SearchBox_FocusChanged"/>
         </Grid>
       </Border>
+      <!-- Calculator: typing 12*7 shows the answer beside the search pill. -->
+      <Border x:Name="CalcChip" Visibility="Collapsed" HorizontalAlignment="Center" Margin="470,0,0,0"
+              Height="36" CornerRadius="18" Padding="16,0" Cursor="Hand"
+              Background="{DynamicResource AccentBrush}" MouseLeftButtonUp="CalcChip_Click"
+              ToolTip="Enter copies the result">
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <TextBlock Text="=" FontSize="14" Foreground="{DynamicResource AccentInkBrush}" Opacity="0.7" Margin="0,0,8,0"/>
+          <TextBlock x:Name="CalcText" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource AccentInkBrush}"/>
+        </StackPanel>
+      </Border>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
         <Button x:Name="DoneButton" Content="Done" Style="{DynamicResource GlassPillButton}"
                 Visibility="Collapsed" Click="Done_Click" Margin="0,0,10,0"/>
@@ -243,9 +248,20 @@
                  Foreground="{DynamicResource LabelBrush}" Opacity="0.7"
                  HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
 
-      <TextBlock x:Name="NoResults" Text="No results" FontSize="22"
-                 Foreground="{DynamicResource LabelBrush}" Opacity="0.7"
-                 HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+      <StackPanel x:Name="NoResults" HorizontalAlignment="Center" VerticalAlignment="Center"
+                  Visibility="Collapsed">
+        <TextBlock Text="No apps match" FontSize="22" TextAlignment="Center" Opacity="0.75"
+                   Foreground="{DynamicResource LabelBrush}"/>
+        <Button x:Name="WebSearchButton" Style="{DynamicResource GlassPillButton}" Margin="0,18,0,0"
+                HorizontalAlignment="Center" Click="WebSearch_Click">
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="&#xE774;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
+                       VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <TextBlock x:Name="WebSearchText" VerticalAlignment="Center"/>
+            <TextBlock Text="Enter" FontSize="11" Opacity="0.6" VerticalAlignment="Center" Margin="14,0,0,0"/>
+          </StackPanel>
+        </Button>
+      </StackPanel>
 
       <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center"
                   Visibility="Collapsed">

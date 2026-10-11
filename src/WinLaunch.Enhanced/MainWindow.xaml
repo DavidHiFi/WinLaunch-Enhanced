@@ -2,17 +2,23 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:WinLaunch.Enhanced.Views"
-        Title="WinLaunch Enhanced"
+        Title="WinLaunch Enhanced" Icon="pack://application:,,,/WinLaunchEnhanced;component/Assets/WinLaunchEnhanced.ico"
         WindowStyle="None" ResizeMode="NoResize"
-        Topmost="True" ShowInTaskbar="False"
+        Topmost="True" ShowInTaskbar="False" UseLayoutRounding="True"
+        FontFamily="{DynamicResource UiFont}"
         Background="{DynamicResource ScrimBrush}"
         KeyDown="Window_KeyDown" Deactivated="Window_Deactivated"
         SourceInitialized="Window_SourceInitialized">
-  <Grid>
-    <!-- Wallpaper mode: blurred desktop wallpaper plus a light theme tint. -->
+  <Grid ClipToBounds="True">
+    <!-- Wallpaper mode: blurred desktop wallpaper plus a theme tint. -->
     <Image x:Name="BackdropImage" Stretch="UniformToFill" Visibility="Collapsed"
            RenderOptions.BitmapScalingMode="HighQuality"/>
     <Rectangle x:Name="BackdropScrim" Fill="{DynamicResource WallScrimBrush}" Visibility="Collapsed"/>
-    <views:SpringboardView x:Name="Board" AllowDrop="True"/>
+    <Grid RenderTransformOrigin="0.5,0.5">
+      <Grid.RenderTransform>
+        <ScaleTransform x:Name="BoardZoom" ScaleX="1" ScaleY="1"/>
+      </Grid.RenderTransform>
+      <views:SpringboardView x:Name="Board" AllowDrop="True"/>
+    </Grid>
   </Grid>
 </Window>

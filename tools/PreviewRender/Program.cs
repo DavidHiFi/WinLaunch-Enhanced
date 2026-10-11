@@ -30,7 +30,7 @@ public static class Program
         // never into docs/, so private app names can't leak into the repo).
         // Default renders generic samples into docs/ for the README.
         string dataDir = null, outDir = null, folderName = null, themes = null;
-        bool edit = false;
+        bool edit = false, settingsPages = true;
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] == "--data" && i + 1 < args.Length) dataDir = args[++i];
@@ -38,6 +38,7 @@ public static class Program
             if (args[i] == "--folder" && i + 1 < args.Length) folderName = args[++i];
             if (args[i] == "--themes" && i + 1 < args.Length) themes = args[++i];
             if (args[i] == "--edit") edit = true;
+            if (args[i] == "--no-settings") settingsPages = false;
         }
         SpringboardView.AnimationsOff = true;
 
@@ -88,6 +89,7 @@ public static class Program
                 // Fresh view-model per pass so async icon loads cannot cross-talk between themes.
                 var vm = new MainViewModel(store.Directory);
                 ThemeManager.Apply(mode, vm.Store, compat);
+                ThemeManager.ApplyPrefs(vm.Prefs);
                 int w = dataDir != null ? 1920 : 1280, h = dataDir != null ? 1080 : 800;
                 app.Dispatcher.Invoke(() =>
                 {
@@ -95,14 +97,14 @@ public static class Program
                     LastView.Bind(vm);
                     // Same layering as MainWindow in Wallpaper mode. Docs use a
                     // neutral generated backdrop; --data audits use the real wallpaper.
-                    var wall = dataDir != null ? WallpaperBackdrop.GetBlurred() : null;
+                    var wall = dataDir != null ? WallpaperBackdrop.GetBlurred(null, vm.Prefs.Blur) : null;
                     LastRoot = new System.Windows.Controls.Grid
                     {
                         Background = wall != null ? (Brush)app.FindResource("SolidBgBrush") : SampleBackdrop(),
                     };
                     if (wall != null)
                         LastRoot.Children.Add(new System.Windows.Controls.Image { Source = wall, Stretch = Stretch.UniformToFill });
-                    LastRoot.Children.Add(new System.Windows.Shapes.Rectangle { Fill = (Brush)app.FindResource("WallScrimBrush") });
+                    LastRoot.Children.Add(new System.Windows.Shapes.Rectangle { Fill = (Brush)app.FindResource("WallScrimBrush"), Opacity = vm.Prefs.Dim });
                     LastRoot.Children.Add(LastView);
                     LastRoot.Measure(new Size(w, h));
                     LastRoot.Arrange(new Rect(0, 0, w, h));
@@ -134,30 +136,47 @@ public static class Program
                     enc.Save(fs);
                     Console.WriteLine($"wrote {outPath}");
                 });
-                // Settings dialog render: proves the rewritten settings XAML
-                // loads and shows the active theme (not shown on screen).
+                if (!settingsPages)
+                    continue;
+                // Settings pages and menus: a Window only composes once shown,
+                // so render its content element (the real layout) instead.
                 app.Dispatcher.Invoke(() =>
                 {
-                    // A Window only composes once shown, so render its content
-                    // element (the real settings layout) instead of the frame.
-                    var compat2 = new ThemeCompat();
-                    var dlg = new SettingsWindow(vm, compat2);
+                    var main = new MainWindow(vm, smoke: true);
+                    var dlg = new SettingsWindow(main);
                     var content = (FrameworkElement)dlg.Content;
-                    content.Measure(new Size(484, double.PositiveInfinity));
-                    var sz = content.DesiredSize;
-                    content.Arrange(new Rect(0, 0, 484, sz.Height));
-                    content.UpdateLayout();
-                    int ph = (int)Math.Min(Math.Ceiling(sz.Height), 1600);
-                    var rtb = new RenderTargetBitmap(484, ph, 96, 96, PixelFormats.Pbgra32);
-                    rtb.Render(content);
-                    rtb.Freeze();
-                    var outPath = Path.GetFullPath(Path.Combine(outDir,
-                        $"settings-{mode.ToLowerInvariant()}.png"));
-                    using var fs = new FileStream(outPath, FileMode.Create);
-                    var enc = new PngBitmapEncoder();
-                    enc.Frames.Add(BitmapFrame.Create(rtb));
-                    enc.Save(fs);
-                    Console.WriteLine($"wrote {outPath}");
+                    var tag = mode.ToLowerInvariant().Replace(' ', '-');
+                    foreach (var key in SettingsWindow.PageKeys)
+                    {
+                        dlg.SelectPage(key);
+                        content.Measure(new Size(dlg.Width, dlg.Height));
+                        content.Arrange(new Rect(0, 0, dlg.Width, dlg.Height));
+                        content.UpdateLayout();
+                        Pump(app.Dispatcher, 200);
+                        content.UpdateLayout();
+                        Save(content, (int)dlg.Width, (int)dlg.Height, Path.Combine(outDir, $"settings-{tag}-{key}.png"));
+                    }
+                    var menus = new[]
+                    {
+                        ("board", LastView.BuildBoardMenu()),
+                        ("tile", LastView.BuildTileMenu(vm.TopItems.First(i => !i.IsFolder))),
+                    };
+                    foreach (var (name, menu) in menus)
+                    {
+                        // A ContextMenu cannot be parented, so lay it out on its
+                        // own and paint it over the board background.
+                        menu.Measure(new Size(420, 520));
+                        var ms = menu.DesiredSize;
+                        menu.Arrange(new Rect(0, 0, ms.Width, ms.Height));
+                        menu.UpdateLayout();
+                        var dv = new DrawingVisual();
+                        using (var ctx = dv.RenderOpen())
+                        {
+                            ctx.DrawRectangle((Brush)app.FindResource("SolidBgBrush"), null, new Rect(0, 0, ms.Width + 40, ms.Height + 40));
+                            ctx.DrawRectangle(new VisualBrush(menu), null, new Rect(20, 20, ms.Width, ms.Height));
+                        }
+                        Save(dv, (int)ms.Width + 40, (int)ms.Height + 40, Path.Combine(outDir, $"menu-{tag}-{name}.png"));
+                    }
                 });
             }
         }
@@ -176,6 +195,20 @@ public static class Program
     }
 
     private static SpringboardView LastView;
+
+    private static void Save(Visual v, int w, int h, string path)
+    {
+        var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(v);
+        rtb.Freeze();
+        path = Path.GetFullPath(path);
+        Directory.CreateDirectory(Path.GetDirectoryName(path));
+        using var fs = new FileStream(path, FileMode.Create);
+        var enc = new PngBitmapEncoder();
+        enc.Frames.Add(BitmapFrame.Create(rtb));
+        enc.Save(fs);
+        Console.WriteLine($"wrote {path}");
+    }
     private static System.Windows.Controls.Grid LastRoot;
 
     private static Brush SampleBackdrop()

@@ -5,6 +5,7 @@ using WinLaunch.Enhanced.Theme;
 using WinLaunch.Legacy;
 using WpfApplication = System.Windows.Application;
 using WpfColor = System.Windows.Media.Color;
+using FontFamily = System.Windows.Media.FontFamily;
 
 namespace WinLaunch.Enhanced;
 
@@ -17,6 +18,74 @@ public static class ThemeManager
     public static string CurrentBackdrop { get; private set; } = "Wallpaper";
     public static readonly string[] Backdrops = { "Wallpaper", "Acrylic", "Mica", "Solid" };
 
+    private static WpfColor _shadowColor = Colors.Black;
+    private static bool _labelShadow = true;
+
+    public static void ApplyPrefs(Services.EnhancedPrefs p)
+    {
+        ApplyFont(p.FontFamily, p.TextScale);
+        _labelShadow = p.LabelShadow;
+        UpdateLabelEffect();
+    }
+
+    // One frozen shadow shared by every tile label; null turns shadows off.
+    private static void UpdateLabelEffect()
+    {
+        var r = WpfApplication.Current.Resources;
+        if (!_labelShadow)
+        {
+            r["LabelEffect"] = null;
+            return;
+        }
+        var fx = new System.Windows.Media.Effects.DropShadowEffect
+        {
+            ShadowDepth = 1, BlurRadius = 5, Opacity = 0.85, Color = _shadowColor,
+        };
+        fx.Freeze();
+        r["LabelEffect"] = fx;
+    }
+
+    public static string CurrentFont { get; private set; } = Services.EnhancedPrefs.DefaultFont;
+    public static double TextScale { get; private set; } = 1.0;
+
+    // The chosen font with Segoe UI Variable behind it, so a missing font or a
+    // missing glyph falls back to the system face instead of boxes.
+    public static void ApplyFont(string family, double scale)
+    {
+        CurrentFont = string.IsNullOrWhiteSpace(family) ? Services.EnhancedPrefs.DefaultFont : family.Trim();
+        TextScale = Math.Clamp(scale <= 0 ? 1 : scale, 0.8, 1.4);
+        var r = WpfApplication.Current.Resources;
+        r["UiFont"] = new FontFamily($"{CurrentFont}, Segoe UI Variable Text, Segoe UI");
+        r["TextScale"] = TextScale;
+    }
+
+    // Installed families, including per-user fonts that the machine-wide
+    // list leaves out (Nerd Fonts installed without admin rights land there).
+    public static List<string> InstalledFonts()
+    {
+        var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Add(IEnumerable<FontFamily> fams)
+        {
+            foreach (var f in fams)
+            {
+                var n = f.FamilyNames.TryGetValue(System.Windows.Markup.XmlLanguage.GetLanguage("en-us"), out var en)
+                    ? en : f.Source;
+                if (!string.IsNullOrWhiteSpace(n) && !n.StartsWith("@"))
+                    names.Add(n.Contains('#') ? n[(n.LastIndexOf('#') + 1)..] : n);
+            }
+        }
+        try { Add(Fonts.SystemFontFamilies); } catch { }
+        try
+        {
+            var user = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Microsoft", "Windows", "Fonts");
+            if (Directory.Exists(user))
+                Add(Fonts.GetFontFamilies(user + Path.DirectorySeparatorChar));
+        }
+        catch { }
+        return names.ToList();
+    }
+
     public static void EnsureStyles()
     {
         var dicts = WpfApplication.Current.Resources.MergedDictionaries;
@@ -25,7 +94,7 @@ public static class ThemeManager
             return;
         dicts.Add(new ResourceDictionary
         {
-            Source = new Uri("/WinLaunch.Enhanced;component/Theme/Styles.xaml", UriKind.Relative),
+            Source = new Uri("/WinLaunchEnhanced;component/Theme/Styles.xaml", UriKind.Relative),
         });
     }
 
@@ -63,9 +132,11 @@ public static class ThemeManager
         r["FolderIconBrush"] = Alpha(t.Dark ? Colors.White : Colors.White, t.Dark ? 0.18 : 0.55);
         r["FolderBandBrush"] = new SolidColorBrush(Themes.C(t.Bg)) { Opacity = t.Dark ? 0.78 : 0.82 };
         r["DimBrush"] = Alpha(Colors.Black, t.Dark ? 0.45 : 0.22);
-        r["WallScrimBrush"] = new SolidColorBrush(Themes.C(t.Bg)) { Opacity = t.Dark ? 0.34 : 0.42 };
+        r["WallScrimBrush"] = new SolidColorBrush(Themes.C(t.Bg));
         r["LabelBrush"] = new SolidColorBrush(t.Dark ? Colors.White : Themes.C(t.Text));
         r["LabelShadowColor"] = t.Dark ? Colors.Black : Colors.White;
+        _shadowColor = t.Dark ? Colors.Black : Colors.White;
+        UpdateLabelEffect();
         r["DeleteBadgeBrush"] = new SolidColorBrush(t.Dark ? WpfColor.FromRgb(0x6C, 0x70, 0x86) : WpfColor.FromRgb(0x8C, 0x8F, 0xA1));
         if (WpfApplication.Current.MainWindow != null)
             (WpfApplication.Current.MainWindow as MainWindow)?.ReapplyComposition();

@@ -12,6 +12,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 {
     public LegacyStore Store { get; }
     public LegacySettings Settings { get; private set; }
+    public Services.EnhancedPrefs Prefs { get; }
+
+    public static string UseKey(ItemViewModel vm) => vm.Model.Application ?? vm.Name;
     public string IconCacheDir => Path.Combine(Store.Directory, "IconCache");
 
     public ObservableCollection<ItemViewModel> TopItems { get; } = new();
@@ -67,6 +70,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public MainViewModel(string dataDir = null)
     {
         Store = new LegacyStore(dataDir);
+        Prefs = Services.EnhancedPrefs.Load(Store.Directory);
         Reload();
     }
 
@@ -134,15 +138,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
         var q = (_searchText ?? "").Trim();
         if (q.Length == 0)
             return;
+        var hits = new List<ItemViewModel>();
         foreach (var vm in TopItems)
         {
             if (Matches(vm, q))
-                SearchResults.Add(vm);
+                hits.Add(vm);
             if (vm.IsFolder)
                 foreach (var child in vm.Children)
                     if (Matches(child, q))
-                        SearchResults.Add(child);
+                        hits.Add(child);
         }
+        // Names that start with the query first, then word starts, then the
+        // apps you open most (when ranking is on), then alphabetical.
+        int Rank(ItemViewModel v) =>
+            v.Name.StartsWith(q, StringComparison.OrdinalIgnoreCase) ? 0 :
+            v.Name.Contains(" " + q, StringComparison.OrdinalIgnoreCase) ? 1 : 2;
+        foreach (var v in hits
+                     .OrderBy(Rank)
+                     .ThenByDescending(v => Prefs.RankByUse ? Prefs.UsesOf(UseKey(v)) : 0)
+                     .ThenBy(v => v.Name, StringComparer.OrdinalIgnoreCase))
+            SearchResults.Add(v);
     }
 
     private static bool Matches(ItemViewModel vm, string q) =>

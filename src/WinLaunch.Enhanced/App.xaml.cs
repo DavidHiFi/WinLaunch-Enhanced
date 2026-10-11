@@ -5,26 +5,41 @@ using WinLaunch.Enhanced.ViewModels;
 
 namespace WinLaunch.Enhanced;
 
+// One instance per user. Starting the app again (Start menu, desktop
+// shortcut, taskbar pin) asks the running copy to show the launcher, so the
+// shortcut behaves like opening the app. --background starts hidden in the
+// tray (sign-in), --quit asks a running copy to exit (installer, uninstaller).
 public partial class App : System.Windows.Application
 {
+    private const string MutexName = "WinLaunch.Enhanced.SingleInstance";
+    private const string ShowEventName = "WinLaunch.Enhanced.Show";
+    private const string QuitEventName = "WinLaunch.Enhanced.Quit";
+
     private static Mutex _single;
+    private EventWaitHandle _showEvent, _quitEvent;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-
         ThemeManager.EnsureStyles();
-        _single = new Mutex(true, "WinLaunch.Enhanced.SingleInstance", out bool owned);
-        if (!owned)
+
+        bool quit = e.Args.Contains("--quit");
+        bool smoke = e.Args.Contains("--smoke");
+        _single = new Mutex(true, MutexName, out bool owned);
+        if (!owned && !smoke)
         {
-            System.Windows.MessageBox.Show("WinLaunch Enhanced is already running.", "WinLaunch Enhanced",
-                MessageBoxButton.OK, MessageBoxImage.Information);
+            Signal(quit ? QuitEventName : ShowEventName);
+            Shutdown();
+            return;
+        }
+        if (quit)
+        {
             Shutdown();
             return;
         }
 
-        var dataDir = e.Args.Length > 0 && Directory.Exists(e.Args[0]) ? e.Args[0] : null;
-        if (e.Args.Any(a => a == "--smoke"))
+        var dataDir = e.Args.FirstOrDefault(a => !a.StartsWith("--") && Directory.Exists(a));
+        if (smoke)
         {
             RunSmoke(dataDir);
             return;
@@ -33,8 +48,41 @@ public partial class App : System.Windows.Application
         var window = new MainWindow(vm);
         MainWindow = window;
         window.HideToTray();
-        if (e.Args.Any(a => a == "--show"))
+        Listen(window);
+        if (!e.Args.Contains("--background"))
             window.ShowOverlay();
+    }
+
+    private static void Signal(string name)
+    {
+        try
+        {
+            using var ev = EventWaitHandle.OpenExisting(name);
+            ev.Set();
+        }
+        catch { }
+    }
+
+    private void Listen(MainWindow window)
+    {
+        _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
+        _quitEvent = new EventWaitHandle(false, EventResetMode.AutoReset, QuitEventName);
+        var thread = new Thread(() =>
+        {
+            var handles = new WaitHandle[] { _showEvent, _quitEvent };
+            while (true)
+            {
+                int which = WaitHandle.WaitAny(handles);
+                if (which == 0)
+                    Dispatcher.BeginInvoke(window.ShowOverlay);
+                else
+                {
+                    Dispatcher.BeginInvoke(() => window.Close());
+                    return;
+                }
+            }
+        }) { IsBackground = true, Name = "InstanceSignals" };
+        thread.Start();
     }
 
     // Headless startup check: builds the real view-model and window offscreen,
@@ -60,7 +108,7 @@ public partial class App : System.Windows.Application
                 int nested = vm.TopItems.Where(i => i.IsFolder).Sum(i => i.Children.Count);
                 int broken = vm.TopItems.Count(i => i.Broken);
                 Console.WriteLine($"smoke: items={vm.TopItems.Count} folders={folders} " +
-                    $"nested={nested} broken={broken} icons={icons} " +
+                    $"nested={nested} broken={broken} icons={icons} font={ThemeManager.CurrentFont} " +
                     $"error={vm.LoadError ?? "none"} ms={sw.ElapsedMilliseconds}");
                 if (vm.LoadError != null)
                     exit = 1;

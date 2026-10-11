@@ -1,13 +1,16 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using WinForms = System.Windows.Forms;
 using WinLaunch.Enhanced.Services;
 using WinLaunch.Enhanced.ViewModels;
 using WinLaunch.Legacy;
 using Key = System.Windows.Input.Key;
+using Brushes = System.Windows.Media.Brushes;
 
 namespace WinLaunch.Enhanced;
 
@@ -16,23 +19,35 @@ public partial class MainWindow : Window
     private readonly MainViewModel _vm;
     private readonly ThemeCompat _compat;
     private readonly HotkeyService _hotkey = new();
+    private readonly DispatcherTimer _cornerTimer;
     private WinForms.NotifyIcon _tray;
-    private bool _hotkeyActive;
+    private SettingsWindow _settings;
+    private DateTime _cornerSince = DateTime.MaxValue;
+    private bool _cornerArmed = true;
+
+    public bool HotkeyActive { get; private set; }
 
     public MainWindow(MainViewModel vm, bool smoke = false)
     {
         _vm = vm;
         _compat = ThemeCompat.Load(Path.Combine(vm.Store.Directory, "CurrentTheme"));
         ThemeManager.Apply(ThemeManager.LoadThemeName(vm.Store), vm.Store, _compat);
+        ThemeManager.ApplyPrefs(vm.Prefs);
         InitializeComponent();
         Board.Bind(vm);
+        _cornerTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(120) };
+        _cornerTimer.Tick += CornerTick;
         if (smoke)
             return;
         Board.OverlayShouldHide += () => Dispatcher.BeginInvoke(HideOverlay);
         Board.OpenSettings += OpenSettings;
+        _hotkey.Pressed += () => Dispatcher.BeginInvoke(ToggleFromHotkey);
         PositionWindow();
         SetupTray();
     }
+
+    public MainViewModel ViewModel => _vm;
+    public ThemeCompat Compat => _compat;
 
     public void HideToTray()
     {
@@ -50,21 +65,19 @@ public partial class MainWindow : Window
                     ? WinForms.Screen.FromPoint(WinForms.Cursor.Position)
                     : screens[Math.Clamp(_vm.Settings.ScreenIndex, 0, screens.Length - 1)];
             var area = _vm.Settings.FillScreen ? screen.Bounds : screen.WorkingArea;
-            Left = area.Left;
-            Top = area.Top;
-            Width = area.Width;
-            Height = area.Height;
+            // Screen coordinates are device pixels; WPF positions in DIPs.
+            var dpi = VisualTreeHelper.GetDpi(this);
+            Left = area.Left / dpi.DpiScaleX;
+            Top = area.Top / dpi.DpiScaleY;
+            Width = area.Width / dpi.DpiScaleX;
+            Height = area.Height / dpi.DpiScaleY;
         }
         catch { }
     }
 
     private void SetupTray()
     {
-        _tray = new WinForms.NotifyIcon
-        {
-            Text = "WinLaunch Enhanced",
-            Visible = true,
-        };
+        _tray = new WinForms.NotifyIcon { Text = "WinLaunch Enhanced", Visible = true };
         try
         {
             using var icon = System.Drawing.Icon.ExtractAssociatedIcon(
@@ -73,33 +86,87 @@ public partial class MainWindow : Window
                 _tray.Icon = (System.Drawing.Icon)icon.Clone();
         }
         catch { _tray.Icon = System.Drawing.SystemIcons.Application; }
-        var menu = new WinForms.ContextMenuStrip();
-        menu.Items.Add("Show", null, (_, _) => ShowOverlay());
-        menu.Items.Add("Settings", null, (_, _) => OpenSettings());
-        menu.Items.Add("Open data folder", null, (_, _) =>
+        _tray.MouseClick += (_, e) =>
+        {
+            if (e.Button == WinForms.MouseButtons.Left)
+                ShowOverlay();
+            else if (e.Button == WinForms.MouseButtons.Right)
+                ShowTrayMenu();
+        };
+    }
+
+    // The tray menu uses the same themed WPF menu as the board instead of the
+    // WinForms strip, so every menu in the app looks alike.
+    private void ShowTrayMenu()
+    {
+        var menu = new System.Windows.Controls.ContextMenu
+        {
+            Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint,
+        };
+        menu.Items.Add(MenuItem("Open WinLaunch", "", ShowOverlay, HotkeyText()));
+        menu.Items.Add(MenuItem("Settings", "", OpenSettings));
+        menu.Items.Add(MenuItem("Open data folder", "", () =>
         {
             try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(_vm.Store.Directory) { UseShellExecute = true }); }
             catch { }
-        });
-        menu.Items.Add("Exit", null, (_, _) => Close());
-        _tray.ContextMenuStrip = menu;
-        _tray.DoubleClick += (_, _) => ShowOverlay();
+        }));
+        menu.Items.Add(new System.Windows.Controls.Separator());
+        var quit = MenuItem("Quit", "", Close);
+        quit.Tag = "danger";
+        menu.Items.Add(quit);
+        // A context menu needs a foreground window of ours to dismiss properly.
+        var host = new Window
+        {
+            WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent,
+            ShowInTaskbar = false, Width = 1, Height = 1, Topmost = true,
+            Left = -10000, Top = -10000, ShowActivated = true,
+        };
+        host.Show();
+        host.Activate();
+        menu.Closed += (_, _) => host.Close();
+        menu.IsOpen = true;
+    }
+
+    private static System.Windows.Controls.MenuItem MenuItem(string header, string glyph, Action click, string gesture = null)
+    {
+        var mi = new System.Windows.Controls.MenuItem { Header = header, Icon = glyph, InputGestureText = gesture };
+        mi.Click += (_, _) => click();
+        return mi;
     }
 
     private void Window_SourceInitialized(object sender, EventArgs e)
     {
         ApplyComposition();
-        var s = _vm.Settings;
-        if (s.HotKeyEnabled)
-        {
-            var handle = new WindowInteropHelper(this).Handle;
-            _hotkeyActive = _hotkey.Register(handle, s.HotAlt, s.HotControl, s.HotShift, s.HotWin, s.HotKeyExtend);
-            _hotkey.Pressed += () => Dispatcher.BeginInvoke(ToggleOverlay);
-        }
-        if (!_hotkeyActive && s.HotKeyEnabled)
+        RegisterHotkey();
+        if (!HotkeyActive && _vm.Settings.HotKeyEnabled)
             _tray?.ShowBalloonTip(3000, "WinLaunch Enhanced",
-                $"Hotkey {DescribeHotkey()} could not be registered. The tray icon still works.",
+                $"The shortcut {HotkeyText()} is used by another app. Change it in Settings; the tray icon still works.",
                 WinForms.ToolTipIcon.Warning);
+        UpdateCorners();
+    }
+
+    public void RegisterHotkey()
+    {
+        _hotkey.Unregister();
+        HotkeyActive = false;
+        var s = _vm.Settings;
+        var handle = new WindowInteropHelper(this).Handle;
+        if (s.HotKeyEnabled && handle != IntPtr.Zero)
+            HotkeyActive = _hotkey.Register(handle, s.HotAlt, s.HotControl, s.HotShift, s.HotWin, s.HotKeyExtend);
+    }
+
+    public string HotkeyText() => HotkeyFormat.Describe(_vm.Settings);
+
+    // Re-applies everything settings can change; called live by the settings window.
+    public void ApplyAll()
+    {
+        ThemeManager.ApplyPrefs(_vm.Prefs);
+        ApplyComposition();
+        Board.ApplySettings();
+        Board.RefreshPagePublic();
+        if (Visibility == Visibility.Visible)
+            PositionWindow();
+        UpdateCorners();
     }
 
     private void ApplyComposition()
@@ -107,13 +174,14 @@ public partial class MainWindow : Window
         if (BackdropImage == null)
             return; // theme applied before InitializeComponent
         var mode = ThemeManager.CurrentBackdrop;
-        var wall = mode == "Wallpaper" ? WallpaperBackdrop.GetBlurred() : null;
+        var wall = mode == "Wallpaper" ? WallpaperBackdrop.GetBlurred(null, _vm.Prefs.Blur) : null;
         if (wall != null)
         {
             AcrylicHelper.ApplyComposition(this, "Solid", ThemeManager.IsDark());
             SetResourceReference(BackgroundProperty, "SolidBgBrush");
             BackdropImage.Source = wall;
             BackdropImage.Visibility = Visibility.Visible;
+            BackdropScrim.Opacity = Math.Clamp(_vm.Prefs.Dim, 0, 0.9);
             BackdropScrim.Visibility = Visibility.Visible;
             return;
         }
@@ -128,16 +196,11 @@ public partial class MainWindow : Window
 
     public void ReapplyComposition() => ApplyComposition();
 
-    private string DescribeHotkey()
+    private void ToggleFromHotkey()
     {
-        var s = _vm.Settings;
-        var parts = new List<string>();
-        if (s.HotControl) parts.Add("Ctrl");
-        if (s.HotAlt) parts.Add("Alt");
-        if (s.HotShift) parts.Add("Shift");
-        if (s.HotWin) parts.Add("Win");
-        parts.Add(s.HotKeyExtend);
-        return string.Join("+", parts);
+        if (Visibility != Visibility.Visible && _vm.Settings.BlockOnFullscreen && FullscreenGuard.ForegroundIsFullscreen())
+            return;
+        ToggleOverlay();
     }
 
     public void ToggleOverlay()
@@ -154,15 +217,29 @@ public partial class MainWindow : Window
         ApplyComposition();
         Visibility = Visibility.Visible;
         Activate();
-        BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1,
-            new Duration(TimeSpan.FromMilliseconds(120))) { EasingFunction = null });
+        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140));
+        BeginAnimation(OpacityProperty, fade);
+        if (_vm.Prefs.OpenAnimation && SystemParameters.ClientAreaAnimation)
+        {
+            // Launchpad zoom: the board settles in from slightly larger.
+            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            var dur = TimeSpan.FromMilliseconds(220);
+            BoardZoom.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, new DoubleAnimation(1.06, 1, dur) { EasingFunction = ease });
+            BoardZoom.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, new DoubleAnimation(1.06, 1, dur) { EasingFunction = ease });
+        }
         Board.FocusForOpen();
     }
 
     public void HideOverlay()
     {
-        var anim = new DoubleAnimation(Opacity, 0, new Duration(TimeSpan.FromMilliseconds(100)));
-        anim.Completed += (_, _) => Visibility = Visibility.Hidden;
+        if (Visibility != Visibility.Visible)
+            return;
+        var anim = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(110));
+        anim.Completed += (_, _) =>
+        {
+            if (Opacity < 0.05)
+                Visibility = Visibility.Hidden;
+        };
         BeginAnimation(OpacityProperty, anim);
     }
 
@@ -177,34 +254,82 @@ public partial class MainWindow : Window
 
     private void Window_Deactivated(object sender, EventArgs e)
     {
-        if (Visibility == Visibility.Visible && Views.SpringboardView.ModalDepth == 0 && !_settingsOpen)
+        if (Visibility == Visibility.Visible && Views.SpringboardView.ModalDepth == 0 && _settings == null)
             HideOverlay();
     }
 
-    private bool _settingsOpen;
-
-    private void OpenSettings()
+    public void OpenSettings()
     {
-        var win = new SettingsWindow(_vm, _compat) { Owner = this };
-        _settingsOpen = true;
-        try { win.ShowDialog(); }
-        finally { _settingsOpen = false; }
-        Board.ApplySettings();
-        Board.RefreshPagePublic();
-        PositionWindow();
-        _hotkey.Unregister();
-        _hotkeyActive = false;
-        var s = _vm.Settings;
-        if (s.HotKeyEnabled)
+        if (_settings != null)
         {
-            _hotkeyActive = _hotkey.Register(new WindowInteropHelper(this).Handle,
-                s.HotAlt, s.HotControl, s.HotShift, s.HotWin, s.HotKeyExtend);
-            _hotkey.Pressed += () => Dispatcher.BeginInvoke(ToggleOverlay);
+            _settings.Activate();
+            return;
+        }
+        _settings = new SettingsWindow(this);
+        if (Visibility == Visibility.Visible)
+            _settings.Owner = this;
+        else
+            _settings.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        _settings.Closed += (_, _) =>
+        {
+            _settings = null;
+            if (Visibility == Visibility.Visible)
+                Activate();
+        };
+        _settings.Show();
+        _settings.Activate();
+    }
+
+    // ---- hot corners ----
+
+    private void UpdateCorners()
+    {
+        var s = _vm.Settings;
+        bool on = s.HotCornersEnabled && (s.HotTopLeft || s.HotTopRight || s.HotBottomLeft || s.HotBottomRight);
+        if (on) _cornerTimer.Start(); else _cornerTimer.Stop();
+    }
+
+    [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT p);
+    [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; }
+
+    private void CornerTick(object sender, EventArgs e)
+    {
+        if (!GetCursorPos(out var p))
+            return;
+        var s = _vm.Settings;
+        bool inCorner = false;
+        foreach (var scr in WinForms.Screen.AllScreens)
+        {
+            var b = scr.Bounds;
+            bool l = p.X <= b.Left + 1, r = p.X >= b.Right - 2, t = p.Y <= b.Top + 1, bo = p.Y >= b.Bottom - 2;
+            if ((s.HotTopLeft && l && t) || (s.HotTopRight && r && t) ||
+                (s.HotBottomLeft && l && bo) || (s.HotBottomRight && r && bo))
+            {
+                inCorner = true;
+                break;
+            }
+        }
+        if (!inCorner)
+        {
+            _cornerArmed = true;
+            _cornerSince = DateTime.MaxValue;
+            return;
+        }
+        if (!_cornerArmed)
+            return;
+        if (_cornerSince == DateTime.MaxValue)
+            _cornerSince = DateTime.UtcNow;
+        if ((DateTime.UtcNow - _cornerSince).TotalSeconds >= Math.Max(0, s.HotCornerDelay))
+        {
+            _cornerArmed = false;
+            if (Visibility != Visibility.Visible && !(s.BlockOnFullscreen && FullscreenGuard.ForegroundIsFullscreen()))
+                ShowOverlay();
         }
     }
 
     protected override void OnClosed(EventArgs e)
     {
+        _cornerTimer.Stop();
         try { _vm.SaveNow(); } catch { }
         _hotkey.Dispose();
         if (_tray != null)
@@ -213,5 +338,6 @@ public partial class MainWindow : Window
             _tray.Dispose();
         }
         base.OnClosed(e);
+        System.Windows.Application.Current.Shutdown();
     }
 }
