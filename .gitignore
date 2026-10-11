@@ -1,0 +1,8 @@
+upstream/
+bin/
+obj/
+*.user
+.vs/
+docs/preview-*.png
+!docs/preview-dark.png
+!docs/preview-light.png

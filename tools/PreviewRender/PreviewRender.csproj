@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\WinLaunch.Enhanced\WinLaunch.Enhanced.csproj" />
+    <ProjectReference Include="..\..\src\WinLaunch.Legacy\WinLaunch.Legacy.csproj" />
+  </ItemGroup>
+
+</Project>
