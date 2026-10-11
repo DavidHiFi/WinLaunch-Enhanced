@@ -1,15 +1,18 @@
 # WinLaunch Enhanced
 
 A ground-up rewrite of [WinLaunch](https://github.com/jensroth-git/WinLaunch)
-(MIT, (c) 2022 MrC0rrupted), modernized for Windows 11: .NET 8 WPF instead of
-.NET Framework 4.8, async cached icons, real acrylic, full keyboard operation,
-and seven house themes (Catppuccin Mocha default) with a Solid/Acrylic/Mica
-backdrop selector.
+(MIT, (c) 2022 MrC0rrupted), modernized for Windows 11. It keeps the original
+Launchpad look: your wallpaper blurred behind floating icons, glass folders
+with a 3x3 preview of their apps, a search pill at the top and page dots at
+the bottom. Underneath it is .NET 8 WPF instead of .NET Framework 4.8, with
+256 px shell icons, async icon caching and seven house themes
+(Catppuccin Mocha default).
 
 Screenshots below are rendered by `tools/PreviewRender` from the actual UI code
-and themes (sample entries, real extracted icons):
+(sample entries, real extracted icons, a generated stand-in wallpaper):
 
 ![WinLaunch Enhanced, dark theme](docs/preview-dark.png)
+![An open folder](docs/preview-dark-folder.png)
 ![WinLaunch Enhanced, light theme](docs/preview-light.png)
 
 Settings are grouped cards in the active house theme:
@@ -28,24 +31,33 @@ same place (`%APPDATA%\WinLaunch`, or beside the exe for portable installs):
 - Opening Enhanced never reorders your layout: stored positions are preserved
   byte-for-byte until you move something yourself.
 
-## What works in 1.0.0
+## What works
 
-Fullscreen overlay with acrylic blur (solid scrim fallback), paged tile grid,
-folders with miniature composites, instant search across names, keywords and
-folder contents, global hotkey (your existing combo is picked up automatically),
-tray icon, add by file picker or drag-and-drop, rename, delete with confirm,
-drag reorder and drop-into-folder in Edit mode, move-to-page menu, settings
-window (grid size, hotkey, window placement, sorting, theme), seven house themes (T3 Dark/Light, Catppuccin
-Mocha/Latte, Tokyo Night, Nord, Rose Pine) with Solid/Acrylic/Mica backdrop, full keyboard operation
-(arrows, Enter, F2, Delete, Ctrl+N, Ctrl+E, Esc with visible focus ring).
+- Fullscreen overlay over your blurred wallpaper (the original look), or
+  Acrylic, Mica or Solid backgrounds.
+- Paged grid sized by your rows, columns and icon size. Change pages with the
+  mouse wheel, a horizontal swipe, the page dots, PageUp/PageDown or
+  Ctrl+Left/Right.
+- Glass folders showing their first nine apps. A folder opens as a band over
+  the blurred board; click its title to rename it.
+- Search from the pill or by just typing. Enter opens the top result.
+- Edit mode (hold a tile, Ctrl+E or the menu): tiles wiggle, a badge removes
+  them, drag swaps tiles or drops an app into a folder. Removing shows an Undo
+  button for a few seconds (Ctrl+Z works too). Esc or Done ends editing.
+- Right-click a tile: open, run as administrator, open file location, rename,
+  move to page, move out of folder, remove. Right-click empty space or the
+  menu button for add apps, new folder, edit layout and settings.
+- Global hotkey (your existing combo is picked up), tray icon, add by file
+  picker or drag-and-drop, dead links shown dimmed.
+- Seven house themes: T3 Dark/Light, Catppuccin Mocha/Latte, Tokyo Night,
+  Nord, Rose Pine. Animations follow the Windows "animation effects" setting.
 
-## What is intentionally not ported yet
+## What is not ported yet
 
 Block-on-fullscreen, hot corners, double-tap and middle-mouse activation,
 gamepad and voice activation, desktop-link watcher, custom background images,
-the update checker, languages other than English, autostart setup, and the
-wiggle animation in Edit mode (rearranging itself works). See DESIGN.md for
-the visual direction; contributions welcome.
+the update checker, languages other than English and autostart setup.
+Contributions welcome; see DESIGN.md for the visual direction.
 
 ## Build and run
 

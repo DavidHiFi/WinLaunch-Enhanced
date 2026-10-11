@@ -1,5 +1,15 @@
 # DESIGN.md — WinLaunch Enhanced
 
+> 2026-10-12 direction change: after user review the board returns to the
+> original WinLaunch/Launchpad look. Tiles are transparent floating icons
+> (70 px x IconSize, 256 px shell images), labels are white with a dark
+> shadow, folders are white-glass squares with a 3x3 miniature grid, the
+> default background is the blurred desktop wallpaper with a 34% theme tint,
+> an open folder is a translucent band over a blurred, dimmed board, and edit
+> mode wiggles tiles (about 1.5 degrees, random phase) with remove badges.
+> House themes still drive every color; the sections below about slabs and
+> solid cards apply to dialogs and settings only.
+
 Direction for the WinLaunch Enhanced fork. This file is the visual source of truth;
 `antislop.md` (core) plus `antislop-ui` and `antislop-human` filter on top of it.
 

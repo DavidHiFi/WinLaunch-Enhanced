@@ -46,7 +46,14 @@ public sealed class ItemViewModel : INotifyPropertyChanged
         Icon = IconService.GetInitialTile(model.Name);
         foreach (var child in model.Items ?? new List<ICItem>())
             Children.Add(new ItemViewModel(child, store, cacheDir, $"in {model.Name}"));
+        Children.CollectionChanged += (_, _) => OnPropertyChanged(nameof(PreviewChildren));
     }
+
+    // First nine children, drawn as the 3x3 miniature grid on a folder tile.
+    public IReadOnlyList<ItemViewModel> PreviewChildren => Children.Take(9).ToList();
+
+    // Folders with a custom icon show it instead of the miniature grid.
+    public bool HasCustomIcon => IsFolder && !string.IsNullOrEmpty(Model.IconPath);
 
     public void RefreshTarget()
     {
@@ -57,6 +64,15 @@ public sealed class ItemViewModel : INotifyPropertyChanged
 
     public void LoadIcon()
     {
+        if (IsFolder)
+            foreach (var child in Children)
+                if (!child._iconRequested)
+                {
+                    child._iconRequested = true;
+                    child.RefreshTarget();
+                    child.LoadIcon();
+                }
+        _iconRequested = true;
         _iconCts.Cancel();
         _iconCts = new CancellationTokenSource();
         var ct = _iconCts.Token;
@@ -77,6 +93,8 @@ public sealed class ItemViewModel : INotifyPropertyChanged
     {
         OnPropertyChanged(nameof(Name));
     }
+
+    private bool _iconRequested;
 
     public Task IconLoadTask { get; private set; } = Task.CompletedTask;
 

@@ -8,7 +8,7 @@ namespace WinLaunch.Enhanced.Services;
 // in the error state, never as a silent no-op.
 public static class LauncherService
 {
-    public static void Launch(ICItem item, LegacyStore store)
+    public static void Launch(ICItem item, LegacyStore store, bool asAdmin = false)
     {
         var target = store.ResolveLinkTarget(item.Application);
         if (target == null)
@@ -21,7 +21,7 @@ public static class LauncherService
         };
         try
         {
-            if (item.RunAsAdmin)
+            if (item.RunAsAdmin || asAdmin)
                 psi.Verb = "runas";
             if (File.Exists(target))
                 psi.WorkingDirectory = Path.GetDirectoryName(target);

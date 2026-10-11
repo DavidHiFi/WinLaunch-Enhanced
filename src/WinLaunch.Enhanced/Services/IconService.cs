@@ -16,7 +16,7 @@ namespace WinLaunch.Enhanced.Services;
 // tile drawn in code, never a fabricated logo.
 public static class IconService
 {
-    public static BitmapSource GetInitialTile(string name, double size = 64)
+    public static BitmapSource GetInitialTile(string name, double size = 128)
     {
         var letter = string.IsNullOrWhiteSpace(name) ? "?" : name.Trim()[0].ToString().ToUpperInvariant();
         var bg = TileColor();
@@ -24,7 +24,7 @@ public static class IconService
         var visual = new DrawingVisual();
         using (var ctx = visual.RenderOpen())
         {
-            ctx.DrawRectangle(new SolidColorBrush(bg), null, new Rect(0, 0, size, size));
+            ctx.DrawRoundedRectangle(new SolidColorBrush(bg), null, new Rect(0, 0, size, size), size * 0.22, size * 0.22);
             var text = new FormattedText(letter, System.Globalization.CultureInfo.CurrentUICulture,
                 System.Windows.FlowDirection.LeftToRight, new Typeface("Segoe UI Variable"), size * 0.5,
                 new SolidColorBrush(fg), 96);
@@ -38,7 +38,7 @@ public static class IconService
     }
 
     private static System.Windows.Media.Color TileColor() =>
-        TryThemeColor("TileColor", 0x1A, 0x22, 0x2C);
+        TryThemeColor("CardColor", 0x31, 0x32, 0x44);
 
     private static System.Windows.Media.Color MutedColor() =>
         TryThemeColor("MutedColor", 0x9A, 0xA7, 0xB4);
@@ -84,19 +84,15 @@ public static class IconService
                 var bmp = new BitmapImage();
                 bmp.BeginInit();
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = 160; // tiles draw at most ~130 px
                 bmp.UriSource = new Uri(cached);
                 bmp.EndInit();
                 bmp.Freeze();
                 return bmp;
             }
-            using var icon = Icon.ExtractAssociatedIcon(target);
-            if (icon == null)
+            var src = ShellIcon.Get(target, IconPixels) ?? LegacyIcon(target);
+            if (src == null)
                 return GetInitialTile(Path.GetFileNameWithoutExtension(target));
-            using var bmpIcon = icon.ToBitmap();
-            var src = Imaging.CreateBitmapSourceFromHBitmap(
-                bmpIcon.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty,
-                BitmapSizeOptions.FromWidthAndHeight(64, 64));
-            src.Freeze();
             try
             {
                 Directory.CreateDirectory(cacheDir);
@@ -112,6 +108,27 @@ public static class IconService
         {
             return GetInitialTile(Path.GetFileNameWithoutExtension(target));
         }
+    }
+
+    // Tiles draw icons at 70 x IconSize (116 px at the user's 1.65), so ask the
+    // shell for its 256 px jumbo image instead of the 32 px associated icon.
+    public const int IconPixels = 256;
+
+    private static BitmapSource LegacyIcon(string target)
+    {
+        using var icon = Icon.ExtractAssociatedIcon(target);
+        if (icon == null)
+            return null;
+        using var bmpIcon = icon.ToBitmap();
+        var hbmp = bmpIcon.GetHbitmap();
+        try
+        {
+            var src = Imaging.CreateBitmapSourceFromHBitmap(hbmp, IntPtr.Zero, Int32Rect.Empty,
+                BitmapSizeOptions.FromEmptyOptions());
+            src.Freeze();
+            return src;
+        }
+        finally { ShellIcon.DeleteObject(hbmp); }
     }
 
     private static BitmapSource GetFolderIcon(ICItem folder, LegacyStore store,
@@ -132,7 +149,7 @@ public static class IconService
             var target = store.ResolveLinkTarget(k.Application);
             if (target != null && (File.Exists(target) || Directory.Exists(target)))
                 kids.Add((k, target));
-            if (kids.Count == 4)
+            if (kids.Count == 9)
                 break;
         }
         if (kids.Count == 0)
@@ -140,18 +157,19 @@ public static class IconService
         var visual = new DrawingVisual();
         using (var ctx = visual.RenderOpen())
         {
-            ctx.DrawRectangle(new SolidColorBrush(TileColor()), null, new Rect(0, 0, 64, 64));
+            ctx.DrawRoundedRectangle(new SolidColorBrush(System.Windows.Media.Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF)),
+                null, new Rect(0, 0, 128, 128), 28, 28);
             int i = 0;
             foreach (var (kid, target) in kids)
             {
                 ct.ThrowIfCancellationRequested();
                 var src = GetFileIcon(target, cacheDir);
-                double x = (i % 2) * 32 + 1, y = (i / 2) * 32 + 1;
-                ctx.DrawImage(src, new Rect(x, y, 30, 30));
+                double x = 14 + (i % 3) * 34, y = 14 + (i / 3) * 34;
+                ctx.DrawImage(src, new Rect(x, y, 32, 32));
                 i++;
             }
         }
-        var out_ = new RenderTargetBitmap(64, 64, 96, 96, PixelFormats.Pbgra32);
+        var out_ = new RenderTargetBitmap(128, 128, 96, 96, PixelFormats.Pbgra32);
         out_.Render(visual);
         out_.Freeze();
         return out_;
@@ -162,7 +180,7 @@ public static class IconService
         var mtime = File.Exists(target)
             ? File.GetLastWriteTimeUtc(target).Ticks.ToString()
             : (System.IO.Directory.Exists(target) ? "dir" : "missing");
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(target + "|" + mtime));
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes("v3-256|" + target + "|" + mtime));
         return Convert.ToHexString(bytes)[..16];
     }
 }

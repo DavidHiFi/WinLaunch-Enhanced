@@ -104,8 +104,26 @@ public partial class MainWindow : Window
 
     private void ApplyComposition()
     {
-        AcrylicHelper.ApplyComposition(this, ThemeManager.CurrentBackdrop, ThemeManager.IsDark());
-        ThemeManager.ApplyScrim(this, _compat);
+        if (BackdropImage == null)
+            return; // theme applied before InitializeComponent
+        var mode = ThemeManager.CurrentBackdrop;
+        var wall = mode == "Wallpaper" ? WallpaperBackdrop.GetBlurred() : null;
+        if (wall != null)
+        {
+            AcrylicHelper.ApplyComposition(this, "Solid", ThemeManager.IsDark());
+            SetResourceReference(BackgroundProperty, "SolidBgBrush");
+            BackdropImage.Source = wall;
+            BackdropImage.Visibility = Visibility.Visible;
+            BackdropScrim.Visibility = Visibility.Visible;
+            return;
+        }
+        BackdropImage.Visibility = Visibility.Collapsed;
+        BackdropScrim.Visibility = Visibility.Collapsed;
+        AcrylicHelper.ApplyComposition(this, mode == "Wallpaper" ? "Solid" : mode, ThemeManager.IsDark());
+        if (mode == "Solid" || mode == "Wallpaper")
+            SetResourceReference(BackgroundProperty, "SolidBgBrush");
+        else
+            ThemeManager.ApplyScrim(this, _compat);
     }
 
     public void ReapplyComposition() => ApplyComposition();
@@ -159,14 +177,18 @@ public partial class MainWindow : Window
 
     private void Window_Deactivated(object sender, EventArgs e)
     {
-        if (Visibility == Visibility.Visible)
+        if (Visibility == Visibility.Visible && Views.SpringboardView.ModalDepth == 0 && !_settingsOpen)
             HideOverlay();
     }
+
+    private bool _settingsOpen;
 
     private void OpenSettings()
     {
         var win = new SettingsWindow(_vm, _compat) { Owner = this };
-        win.ShowDialog();
+        _settingsOpen = true;
+        try { win.ShowDialog(); }
+        finally { _settingsOpen = false; }
         Board.ApplySettings();
         Board.RefreshPagePublic();
         PositionWindow();

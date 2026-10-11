@@ -14,7 +14,8 @@ namespace WinLaunch.Enhanced;
 public static class ThemeManager
 {
     public static string CurrentTheme { get; private set; } = Themes.Default;
-    public static string CurrentBackdrop { get; private set; } = "Acrylic";
+    public static string CurrentBackdrop { get; private set; } = "Wallpaper";
+    public static readonly string[] Backdrops = { "Wallpaper", "Acrylic", "Mica", "Solid" };
 
     public static void EnsureStyles()
     {
@@ -53,13 +54,33 @@ public static class ThemeManager
         r["AccentInkBrush"] = new SolidColorBrush(Themes.C(t.OnAccent));
         r["AccentHoverBrush"] = new SolidColorBrush(Themes.C(t.AccentHover));
         r["WarnBrush"] = new SolidColorBrush(Themes.C(t.Warn));
+        // Launchpad layer: glass surfaces over the blurred wallpaper. Dark
+        // themes use white glass and dark label shadows, light themes invert.
+        var ink = t.Dark ? Colors.White : Colors.Black;
+        r["GlassBrush"] = Alpha(ink, t.Dark ? 0.14 : 0.07);
+        r["GlassHoverBrush"] = Alpha(ink, t.Dark ? 0.22 : 0.12);
+        r["GlassBorderBrush"] = Alpha(ink, t.Dark ? 0.20 : 0.12);
+        r["FolderIconBrush"] = Alpha(t.Dark ? Colors.White : Colors.White, t.Dark ? 0.18 : 0.55);
+        r["FolderBandBrush"] = new SolidColorBrush(Themes.C(t.Bg)) { Opacity = t.Dark ? 0.78 : 0.82 };
+        r["DimBrush"] = Alpha(Colors.Black, t.Dark ? 0.45 : 0.22);
+        r["WallScrimBrush"] = new SolidColorBrush(Themes.C(t.Bg)) { Opacity = t.Dark ? 0.34 : 0.42 };
+        r["LabelBrush"] = new SolidColorBrush(t.Dark ? Colors.White : Themes.C(t.Text));
+        r["LabelShadowColor"] = t.Dark ? Colors.Black : Colors.White;
+        r["DeleteBadgeBrush"] = new SolidColorBrush(t.Dark ? WpfColor.FromRgb(0x6C, 0x70, 0x86) : WpfColor.FromRgb(0x8C, 0x8F, 0xA1));
         if (WpfApplication.Current.MainWindow != null)
-            ApplyScrim(WpfApplication.Current.MainWindow, compat);
+            (WpfApplication.Current.MainWindow as MainWindow)?.ReapplyComposition();
         try { File.WriteAllText(Path.Combine(store.Directory, "theme.mode"), CurrentTheme); }
         catch { }
     }
 
     private static void Put(ResourceDictionary r, string key, WpfColor c) => r[key] = c;
+
+    private static SolidColorBrush Alpha(WpfColor c, double opacity)
+    {
+        var b = new SolidColorBrush(c) { Opacity = opacity };
+        b.Freeze();
+        return b;
+    }
 
     public static string LoadThemeName(LegacyStore store)
     {
@@ -81,15 +102,16 @@ public static class ThemeManager
             if (File.Exists(path))
             {
                 var v = File.ReadAllText(path).Trim();
-                if (v == "Solid" || v == "Acrylic" || v == "Mica")
+                if (Backdrops.Contains(v))
                     return v;
             }
         }
         catch { }
         // No explicit choice yet: follow the legacy theme.xml blur preference.
+        // The original drew a blurred wallpaper, so that is the default look.
         if (compat != null && !compat.WantBlur)
             return "Solid";
-        return "Acrylic";
+        return "Wallpaper";
     }
 
     public static void SaveBackdrop(LegacyStore store, string mode)

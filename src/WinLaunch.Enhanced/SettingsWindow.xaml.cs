@@ -38,7 +38,7 @@ public partial class SettingsWindow : Window
         HotKeyBox.Text = s.HotKeyExtend;
         ThemeCombo.ItemsSource = Theme.Themes.All.Keys.ToList();
         ThemeCombo.SelectedItem = ThemeManager.CurrentTheme;
-        BackdropCombo.ItemsSource = new List<string> { "Solid", "Acrylic", "Mica" };
+        BackdropCombo.ItemsSource = ThemeManager.Backdrops.ToList();
         BackdropCombo.SelectedItem = ThemeManager.CurrentBackdrop;
         VersionText.Text = $"WinLaunch Enhanced 1.0.0. Data: {vm.Store.Directory}. " +
             $"Your original WinLaunch reads the same files.";

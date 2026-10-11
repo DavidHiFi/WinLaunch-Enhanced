@@ -160,7 +160,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
         vm.RefreshTarget();
         vm.LoadIcon();
         TopItems.Add(vm);
+        RecountPages();
         return vm;
+    }
+
+    public void RecountPages()
+    {
+        PageCount = Math.Max(1, TopItems.Any() ? TopItems.Max(i => i.Model.Page) + 1 : 1);
+        if (_currentPage >= PageCount)
+            _currentPage = PageCount - 1;
     }
 
     private void Renumber()

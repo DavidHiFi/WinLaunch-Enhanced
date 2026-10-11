@@ -8,5 +8,11 @@
         Background="{DynamicResource ScrimBrush}"
         KeyDown="Window_KeyDown" Deactivated="Window_Deactivated"
         SourceInitialized="Window_SourceInitialized">
-  <views:SpringboardView x:Name="Board" AllowDrop="True"/>
+  <Grid>
+    <!-- Wallpaper mode: blurred desktop wallpaper plus a light theme tint. -->
+    <Image x:Name="BackdropImage" Stretch="UniformToFill" Visibility="Collapsed"
+           RenderOptions.BitmapScalingMode="HighQuality"/>
+    <Rectangle x:Name="BackdropScrim" Fill="{DynamicResource WallScrimBrush}" Visibility="Collapsed"/>
+    <views:SpringboardView x:Name="Board" AllowDrop="True"/>
+  </Grid>
 </Window>

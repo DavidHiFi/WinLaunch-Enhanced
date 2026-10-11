@@ -4,6 +4,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using WinLaunch.Enhanced;
+using WinLaunch.Enhanced.Services;
 using WinLaunch.Enhanced.ViewModels;
 using WinLaunch.Enhanced.Views;
 using WinLaunch.Legacy;
@@ -28,12 +29,17 @@ public static class Program
         // Optional: --data <dir> renders a real dataset (output goes to %TEMP%,
         // never into docs/, so private app names can't leak into the repo).
         // Default renders generic samples into docs/ for the README.
-        string dataDir = null, outDir = null;
+        string dataDir = null, outDir = null, folderName = null, themes = null;
+        bool edit = false;
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] == "--data" && i + 1 < args.Length) dataDir = args[++i];
             if (args[i] == "--out" && i + 1 < args.Length) outDir = args[++i];
+            if (args[i] == "--folder" && i + 1 < args.Length) folderName = args[++i];
+            if (args[i] == "--themes" && i + 1 < args.Length) themes = args[++i];
+            if (args[i] == "--edit") edit = true;
         }
+        SpringboardView.AnimationsOff = true;
 
         try
         {
@@ -77,7 +83,7 @@ public static class Program
 
             var compat = new ThemeCompat();
 
-            foreach (var mode in new[] { "Dark", "Light" })
+            foreach (var mode in (themes ?? "Dark,Light").Split(','))
             {
                 // Fresh view-model per pass so async icon loads cannot cross-talk between themes.
                 var vm = new MainViewModel(store.Directory);
@@ -87,21 +93,40 @@ public static class Program
                 {
                     LastView = new SpringboardView();
                     LastView.Bind(vm);
-                    LastView.Background = (Brush)app.FindResource("ScrimBrush");
-                    LastView.Measure(new Size(w, h));
-                    LastView.Arrange(new Rect(0, 0, w, h));
-                    LastView.UpdateLayout();
+                    // Same layering as MainWindow in Wallpaper mode. Docs use a
+                    // neutral generated backdrop; --data audits use the real wallpaper.
+                    var wall = dataDir != null ? WallpaperBackdrop.GetBlurred() : null;
+                    LastRoot = new System.Windows.Controls.Grid
+                    {
+                        Background = wall != null ? (Brush)app.FindResource("SolidBgBrush") : SampleBackdrop(),
+                    };
+                    if (wall != null)
+                        LastRoot.Children.Add(new System.Windows.Controls.Image { Source = wall, Stretch = Stretch.UniformToFill });
+                    LastRoot.Children.Add(new System.Windows.Shapes.Rectangle { Fill = (Brush)app.FindResource("WallScrimBrush") });
+                    LastRoot.Children.Add(LastView);
+                    LastRoot.Measure(new Size(w, h));
+                    LastRoot.Arrange(new Rect(0, 0, w, h));
+                    LastRoot.UpdateLayout();
                 });
                 PumpUntilIcons(app.Dispatcher, vm, 30000);
                 app.Dispatcher.Invoke(() =>
                 {
-                    var view = LastView;
+                    var view = LastRoot;
+                    if (edit)
+                        LastView.SetEditMode(true);
+                    if (folderName != null)
+                    {
+                        var f = vm.TopItems.FirstOrDefault(i => i.IsFolder &&
+                            i.Name.Contains(folderName, StringComparison.OrdinalIgnoreCase));
+                        if (f != null)
+                            LastView.OpenFolder(f);
+                    }
                     view.UpdateLayout();
                     var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
                     rtb.Render(view);
                     rtb.Freeze();
                     var outPath = Path.GetFullPath(Path.Combine(outDir,
-                        $"preview-{mode.ToLowerInvariant()}.png"));
+                        $"preview-{mode.ToLowerInvariant().Replace(' ', '-')}{(folderName != null ? "-folder" : "")}{(edit ? "-edit" : "")}.png"));
                     Directory.CreateDirectory(Path.GetDirectoryName(outPath));
                     using var fs = new FileStream(outPath, FileMode.Create);
                     var enc = new PngBitmapEncoder();
@@ -151,6 +176,23 @@ public static class Program
     }
 
     private static SpringboardView LastView;
+    private static System.Windows.Controls.Grid LastRoot;
+
+    private static Brush SampleBackdrop()
+    {
+        var b = new LinearGradientBrush
+        {
+            StartPoint = new Point(0, 0), EndPoint = new Point(1, 1),
+            GradientStops =
+            {
+                new GradientStop(Color.FromRgb(0x2A, 0x2B, 0x4A), 0),
+                new GradientStop(Color.FromRgb(0x5B, 0x4B, 0x8A), 0.45),
+                new GradientStop(Color.FromRgb(0x1F, 0x4E, 0x6B), 1),
+            },
+        };
+        b.Freeze();
+        return b;
+    }
 
     private static ICItem NewApp(string name, string path, int index) =>
         new ICItem { Name = name, Application = path, Page = 0, GridIndex = index };
@@ -170,7 +212,7 @@ public static class Program
         while (sw.ElapsedMilliseconds < budgetMs)
         {
             bool done = true;
-            foreach (var item in vm.TopItems)
+            foreach (var item in vm.TopItems.Concat(vm.TopItems.SelectMany(t => t.Children)))
             {
                 if (!item.IconLoadTask.IsCompleted) { done = false; break; }
             }

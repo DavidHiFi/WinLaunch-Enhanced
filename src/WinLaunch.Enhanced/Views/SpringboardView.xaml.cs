@@ -5,7 +5,8 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
-using Microsoft.Win32;
+using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using WinLaunch.Enhanced.Services;
 using WinLaunch.Enhanced.ViewModels;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
@@ -13,22 +14,32 @@ using MouseEventArgs = System.Windows.Input.MouseEventArgs;
 using DragEventArgs = System.Windows.DragEventArgs;
 using UserControl = System.Windows.Controls.UserControl;
 using Button = System.Windows.Controls.Button;
-using TextBox = System.Windows.Controls.TextBox;
 using MessageBox = System.Windows.MessageBox;
-using WpfBrush = System.Windows.Media.Brush;
-using WpfBrushes = System.Windows.Media.Brushes;
 using WpfDragDropEffects = System.Windows.DragDropEffects;
 using WpfDataFormats = System.Windows.DataFormats;
-using WpfOrientation = System.Windows.Controls.Orientation;
-using WpfHAlign = System.Windows.HorizontalAlignment;
 using WpfOpenFileDialog = Microsoft.Win32.OpenFileDialog;
 using Key = System.Windows.Input.Key;
 using MenuItem = System.Windows.Controls.MenuItem;
 using ContextMenu = System.Windows.Controls.ContextMenu;
-using System.Windows.Media.Animation;
+using Point = System.Windows.Point;
 
 namespace WinLaunch.Enhanced.Views;
 
+public sealed class TileTemplateSelector : DataTemplateSelector
+{
+    public DataTemplate AppTemplate { get; set; }
+    public DataTemplate FolderTemplate { get; set; }
+
+    public override DataTemplate SelectTemplate(object item, DependencyObject container)
+    {
+        if (item is ItemViewModel vm && vm.IsFolder)
+            return FolderTemplate;
+        return AppTemplate;
+    }
+}
+
+// The Launchpad board: one page of tiles at a time, folders open as a band
+// over a dimmed board, edit mode wiggles tiles and shows remove badges.
 public partial class SpringboardView : UserControl
 {
     public MainViewModel VM { get; private set; }
@@ -37,15 +48,48 @@ public partial class SpringboardView : UserControl
     public event Action OverlayShouldHide;
     public event Action OpenSettings;
 
-    private System.Windows.Point _dragStart;
+    // Counts dialogs this view opened, so the window does not auto-hide when a
+    // file picker or message box takes focus.
+    public static int ModalDepth { get; set; }
+
+    // Offscreen preview renders have no composition clock, so animations
+    // would freeze at their first frame there.
+    public static bool AnimationsOff { get; set; }
+
+    private static bool Animate => !AnimationsOff && SystemParameters.ClientAreaAnimation;
+
+    private readonly List<FrameworkElement> _wiggleHosts = new();
+    private readonly Random _rng = new();
+    private readonly DispatcherTimer _holdTimer;
+    private readonly DispatcherTimer _undoTimer;
+
+    private Point _dragStart;
     private ItemViewModel _dragItem;
-    private int _lastPage = -1;
+    private bool _suppressClick;
+    private Point _swipeStart;
+    private bool _swiping;
+    private DateTime _lastWheel = DateTime.MinValue;
+    private Action<string> _promptAccept;
+    private (ItemViewModel item, ItemViewModel folder, int index, int page, int grid)? _lastRemoved;
 
     public SpringboardView()
     {
         InitializeComponent();
         Loaded += (_, _) => ApplySettings();
         PreviewKeyDown += OnKey;
+        PreviewTextInput += OnTextInput;
+        _holdTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        _holdTimer.Tick += (_, _) =>
+        {
+            _holdTimer.Stop();
+            if (VM != null && !VM.EditMode && _dragItem != null)
+            {
+                _suppressClick = true;
+                SetEditMode(true);
+            }
+        };
+        _undoTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
+        _undoTimer.Tick += (_, _) => HideUndo();
     }
 
     public void Bind(MainViewModel vm)
@@ -60,28 +104,56 @@ public partial class SpringboardView : UserControl
     {
         if (VM == null)
             return;
+        var s = VM.Settings;
         var pageGrid = FindPanel<UniformGrid>(TileGrid);
         if (pageGrid != null)
-            pageGrid.Columns = Math.Max(1, VM.Settings.Columns);
-        var folderGrid = FindPanel<UniformGrid>(FolderGrid);
-        if (folderGrid != null)
-            folderGrid.Columns = Math.Max(1, VM.Settings.FolderColumns);
-        SearchBox.Visibility = VM.Settings.SearchBarVisible ? Visibility.Visible : Visibility.Collapsed;
+        {
+            pageGrid.Columns = Math.Max(1, s.Columns);
+            pageGrid.Rows = Math.Max(1, s.Rows);
+        }
+        SearchPill.Visibility = s.SearchBarVisible ? Visibility.Visible : Visibility.Hidden;
+        Resources["ItemLabelVisibility"] = s.ShowItemIconText ? Visibility.Visible : Visibility.Collapsed;
+        Resources["FolderLabelVisibility"] = s.ShowFolderIconText ? Visibility.Visible : Visibility.Collapsed;
+        UpdateTileMetrics();
         RefreshDots();
     }
+
+    // Cell size comes from the page area and the user's grid; the icon follows
+    // the original formula (70 px x IconSize) but never outgrows its cell.
+    private void UpdateTileMetrics()
+    {
+        if (VM == null || PageHost.ActualWidth <= 0 || PageHost.ActualHeight <= 0)
+            return;
+        var s = VM.Settings;
+        int cols = Math.Max(1, s.Columns), rows = Math.Max(1, s.Rows);
+        double cellW = Math.Floor(PageHost.ActualWidth / cols);
+        double cellH = Math.Floor(PageHost.ActualHeight / rows);
+        double wanted = Math.Round(70 * (s.IconSize <= 0 ? 1.4 : s.IconSize));
+        double icon = Math.Floor(Math.Min(wanted, Math.Min(cellW * 0.74, cellH * 0.64)));
+        icon = Math.Max(40, icon);
+        Resources["TileCellWidth"] = cellW;
+        Resources["TileCellHeight"] = cellH;
+        Resources["TileIconSize"] = icon;
+        Resources["TileLabelWidth"] = Math.Max(40, cellW - 14);
+        Resources["TileFontSize"] = Math.Clamp(Math.Round(11.5 + icon / 40, 1), 12, 15);
+    }
+
+    private void PageHost_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateTileMetrics();
 
     public void FocusForOpen()
     {
         SearchBox.Text = "";
-        CloseFolder();
+        CloseFolder(animate: false);
+        ClosePrompt();
+        SetEditMode(false);
         Refresh();
         Dispatcher.BeginInvoke(new Action(() =>
         {
-            if (SearchBox.Visibility == Visibility.Visible)
+            if (SearchPill.Visibility == Visibility.Visible)
                 SearchBox.Focus();
             else
-                MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
-        }), System.Windows.Threading.DispatcherPriority.Background);
+                Focus();
+        }), DispatcherPriority.Background);
     }
 
     public void RefreshPagePublic()
@@ -90,28 +162,31 @@ public partial class SpringboardView : UserControl
         Refresh();
     }
 
+    private bool Searching => SearchBox.Text.Trim().Length > 0;
+
     private void Refresh()
     {
         if (VM == null)
             return;
-        bool searching = SearchBox.Text.Trim().Length > 0;
-        TileGrid.ItemsSource = searching ? VM.SearchResults : VM.CurrentPageItems;
+        bool searching = Searching;
+        if (searching)
+        {
+            int cap = Math.Max(1, VM.Settings.Columns * VM.Settings.Rows);
+            TileGrid.ItemsSource = VM.SearchResults.Take(cap).ToList();
+        }
+        else
+        {
+            TileGrid.ItemsSource = VM.CurrentPageItems;
+        }
         LoadingState.Visibility = VM.IsLoading ? Visibility.Visible : Visibility.Collapsed;
         ErrorState.Visibility = VM.LoadError != null ? Visibility.Visible : Visibility.Collapsed;
         ErrorDetail.Text = VM.LoadError ?? "";
-        bool empty = !VM.IsLoading && VM.LoadError == null &&
-            (searching ? VM.SearchResults.Count == 0 : VM.TopItems.Count == 0);
-        EmptyState.Visibility = empty && !searching ? Visibility.Visible : Visibility.Collapsed;
-        TileGrid.Visibility = empty || VM.IsLoading || VM.LoadError != null
-            ? Visibility.Collapsed : Visibility.Visible;
-        int nested = VM.TopItems.Where(i => i.IsFolder).Sum(i => i.Children.Count);
-        ItemCount.Text = $"{VM.TopItems.Count} groups · {nested} apps";
-        if (VM.CurrentPage != _lastPage)
-        {
-            _lastPage = VM.CurrentPage;
-            TileGrid.BeginAnimation(OpacityProperty,
-                new DoubleAnimation(0.35, 1, new Duration(TimeSpan.FromMilliseconds(120))));
-        }
+        bool ok = !VM.IsLoading && VM.LoadError == null;
+        EmptyState.Visibility = ok && !searching && VM.TopItems.Count == 0
+            ? Visibility.Visible : Visibility.Collapsed;
+        NoResults.Visibility = ok && searching && VM.SearchResults.Count == 0
+            ? Visibility.Visible : Visibility.Collapsed;
+        TileGrid.Visibility = ok ? Visibility.Visible : Visibility.Collapsed;
         RefreshDots();
     }
 
@@ -120,32 +195,96 @@ public partial class SpringboardView : UserControl
         if (VM == null)
             return;
         PageDots.Children.Clear();
-        var accent = (WpfBrush)FindResource("AccentBrush");
-        var muted = (WpfBrush)FindResource("MutedBrush");
-        for (int i = 0; i < VM.PageCount; i++)
+        bool show = VM.Settings.PageIndicatorsVisible && !Searching && VM.PageCount > 1;
+        if (show)
         {
-            int page = i;
-            var dot = new Button
+            for (int i = 0; i < VM.PageCount; i++)
             {
-                Content = i == VM.CurrentPage ? "●" : "○",
-                Foreground = i == VM.CurrentPage ? accent : muted,
-                Background = WpfBrushes.Transparent,
-                BorderThickness = new Thickness(0),
-                FontSize = 14,
-                Padding = new Thickness(4, 0, 4, 0),
-                Tag = page,
-            };
-            dot.Click += (_, _) => { VM.CurrentPage = page; Refresh(); };
-            if (VM.Settings.PageIndicatorsVisible || VM.PageCount > 1)
+                int page = i;
+                var dot = new Button { Tag = i == VM.CurrentPage ? "True" : "False", ToolTip = $"Page {i + 1}" };
+                dot.SetResourceReference(StyleProperty, "PageDot");
+                dot.Click += (_, _) => GoToPage(page);
                 PageDots.Children.Add(dot);
+            }
         }
-        EditButton.Content = VM.EditMode ? "Done" : "Edit";
+        DoneButton.Visibility = VM.EditMode ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // ---- paging ----
+
+    private void GoToPage(int page)
+    {
+        if (VM == null || Searching)
+            return;
+        page = Math.Clamp(page, 0, Math.Max(0, VM.PageCount - 1));
+        if (page == VM.CurrentPage)
+            return;
+        int dir = page > VM.CurrentPage ? 1 : -1;
+        VM.CurrentPage = page;
+        Refresh();
+        if (!Animate)
+            return;
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        PageShift.BeginAnimation(TranslateTransform.XProperty,
+            new DoubleAnimation(dir * 90, 0, TimeSpan.FromMilliseconds(220)) { EasingFunction = ease });
+        TileGrid.BeginAnimation(OpacityProperty,
+            new DoubleAnimation(0.15, 1, TimeSpan.FromMilliseconds(200)) { EasingFunction = ease });
+    }
+
+    private void Root_MouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (FolderLayer.Visibility == Visibility.Visible || PromptLayer.Visibility == Visibility.Visible)
+            return;
+        if ((DateTime.UtcNow - _lastWheel).TotalMilliseconds < 280)
+            return;
+        _lastWheel = DateTime.UtcNow;
+        GoToPage(VM.CurrentPage + (e.Delta < 0 ? 1 : -1));
+        e.Handled = true;
+    }
+
+    private void Root_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        _swipeStart = e.GetPosition(this);
+        _swiping = false;
+    }
+
+    private void Root_PreviewMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (VM == null || VM.EditMode || FolderLayer.Visibility == Visibility.Visible)
+            return;
+        double dx = e.GetPosition(this).X - _swipeStart.X;
+        if (Math.Abs(dx) > 120)
+        {
+            _swiping = true;
+            _suppressClick = true;
+            GoToPage(VM.CurrentPage + (dx < 0 ? 1 : -1));
+        }
+    }
+
+    // A plain click on empty space closes the overlay, as in the original;
+    // in edit mode it ends editing instead.
+    private void Root_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_swiping || !ReferenceEquals(e.OriginalSource, Root))
+        {
+            _swiping = false;
+            return;
+        }
+        if (VM.EditMode)
+            SetEditMode(false);
+        else
+            OverlayShouldHide?.Invoke();
     }
 
     // ---- launching ----
 
     private void Tile_Click(object sender, RoutedEventArgs e)
     {
+        if (_suppressClick)
+        {
+            _suppressClick = false;
+            return;
+        }
         if (sender is not Button b || b.Tag is not ItemViewModel item)
             return;
         if (item.IsFolder)
@@ -153,105 +292,394 @@ public partial class SpringboardView : UserControl
             OpenFolder(item);
             return;
         }
+        if (VM.EditMode)
+            return;
+        Launch(item, false);
+    }
+
+    private void Launch(ItemViewModel item, bool asAdmin)
+    {
         try
         {
-            LauncherService.Launch(item.Model, VM.Store);
+            LauncherService.Launch(item.Model, VM.Store, asAdmin);
             OverlayShouldHide?.Invoke();
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            // UAC prompt cancelled: nothing to report.
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"{ex.Message}", "Could not launch",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            ShowModal(() => MessageBox.Show(Window.GetWindow(this), ex.Message, "Could not open",
+                MessageBoxButton.OK, MessageBoxImage.Warning));
         }
     }
 
-    private void OpenFolder(ItemViewModel folder)
+    // ---- folders ----
+
+    public void OpenFolder(ItemViewModel folder)
     {
         ActiveFolder = folder;
+        folder.LoadIcon();
         FolderTitle.Text = folder.Name;
-        FolderCount.Text = $"{folder.Children.Count} apps";
+        var s = VM.Settings;
         FolderGrid.ItemsSource = folder.Children;
-        FolderSheet.Visibility = Visibility.Visible;
+        FolderLayer.Visibility = Visibility.Visible;
+        FolderLayer.UpdateLayout();
+        var grid = FindPanel<UniformGrid>(FolderGrid);
+        int cols = Math.Clamp(folder.Children.Count, 1, Math.Max(1, Math.Min(s.FolderColumns, s.Columns)));
+        if (grid != null)
+            grid.Columns = cols;
+        double cellH = (double)Resources["TileCellHeight"];
+        FolderScroll.MaxHeight = Math.Max(1, Math.Min(s.FolderRows, 4)) * cellH;
+        FolderScroll.ScrollToTop();
+        // Launchpad pushes the board out of focus behind an open folder.
+        PageHost.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 16 };
+        if (Animate)
+        {
+            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            var dur = TimeSpan.FromMilliseconds(200);
+            FolderScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.9, 1, dur) { EasingFunction = ease });
+            FolderScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.9, 1, dur) { EasingFunction = ease });
+            FolderLayer.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)));
+        }
+        Dispatcher.BeginInvoke(new Action(() =>
+            FolderGrid.MoveFocus(new TraversalRequest(FocusNavigationDirection.First))),
+            DispatcherPriority.Input);
     }
 
-    private void FolderClose_Click(object sender, RoutedEventArgs e) => CloseFolder();
-    private void CloseFolder()
+    private void FolderDim_MouseUp(object sender, MouseButtonEventArgs e)
     {
+        CloseFolder();
+        e.Handled = true;
+    }
+
+    private void CloseFolder(bool animate = true)
+    {
+        if (FolderLayer.Visibility != Visibility.Visible)
+        {
+            ActiveFolder = null;
+            return;
+        }
+        CommitFolderTitle();
         ActiveFolder = null;
-        FolderSheet.Visibility = Visibility.Collapsed;
+        PageHost.Effect = null;
+        if (!animate || !Animate)
+        {
+            FolderLayer.BeginAnimation(OpacityProperty, null);
+            FolderLayer.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(130));
+        fade.Completed += (_, _) =>
+        {
+            if (ActiveFolder == null)
+                FolderLayer.Visibility = Visibility.Collapsed;
+        };
+        FolderScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(1, 0.94, TimeSpan.FromMilliseconds(130)));
+        FolderScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(1, 0.94, TimeSpan.FromMilliseconds(130)));
+        FolderLayer.BeginAnimation(OpacityProperty, fade);
+    }
+
+    private void FolderTitle_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            CommitFolderTitle();
+            FolderGrid.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
+            e.Handled = true;
+        }
+    }
+
+    private void FolderTitle_LostFocus(object sender, KeyboardFocusChangedEventArgs e) => CommitFolderTitle();
+
+    private void CommitFolderTitle()
+    {
+        var folder = ActiveFolder;
+        var name = FolderTitle.Text.Trim();
+        if (folder == null || name.Length == 0 || name == folder.Name)
+            return;
+        folder.Model.Name = name;
+        folder.NotifyRenamed();
+        VM.RequestSave();
     }
 
     // ---- search ----
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        SearchHint.Visibility = SearchBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateSearchChrome();
         VM.SearchText = SearchBox.Text;
         VM.RefreshSearch();
         Refresh();
     }
 
-    // ---- keyboard (R-32: full keyboard operation) ----
+    private void SearchBox_FocusChanged(object sender, KeyboardFocusChangedEventArgs e) => UpdateSearchChrome();
+
+    private void UpdateSearchChrome()
+    {
+        bool empty = SearchBox.Text.Length == 0;
+        SearchHint.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+        SearchGlyph.Visibility = SearchHint.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    // Typing anywhere on the board starts a search.
+    private void OnTextInput(object sender, TextCompositionEventArgs e)
+    {
+        if (SearchBox.IsKeyboardFocused || FolderTitle.IsKeyboardFocused || PromptBox.IsKeyboardFocused)
+            return;
+        if (string.IsNullOrEmpty(e.Text) || char.IsControl(e.Text[0]) || SearchPill.Visibility != Visibility.Visible)
+            return;
+        if (FolderLayer.Visibility == Visibility.Visible)
+            CloseFolder(animate: false);
+        SearchBox.Focus();
+        SearchBox.Text += e.Text;
+        SearchBox.CaretIndex = SearchBox.Text.Length;
+        e.Handled = true;
+    }
+
+    // ---- keyboard ----
 
     private void OnKey(object sender, KeyEventArgs e)
     {
+        if (PromptLayer.Visibility == Visibility.Visible)
+        {
+            if (e.Key == Key.Escape) { ClosePrompt(); e.Handled = true; }
+            return;
+        }
         if (e.Key == Key.Escape)
         {
-            if (FolderSheet.Visibility == Visibility.Visible) { CloseFolder(); e.Handled = true; }
+            if (FolderLayer.Visibility == Visibility.Visible) { CloseFolder(); e.Handled = true; }
+            else if (VM.EditMode) { SetEditMode(false); e.Handled = true; }
             else if (SearchBox.Text.Length > 0) { SearchBox.Text = ""; e.Handled = true; }
             return;
         }
-        if (e.Key == Key.Enter && SearchBox.IsKeyboardFocused && VM.SearchResults.Count > 0)
+        if (FolderTitle.IsKeyboardFocused)
+            return;
+        bool inSearch = SearchBox.IsKeyboardFocused;
+        if (e.Key == Key.Enter && inSearch && VM.SearchResults.Count > 0)
         {
             var top = VM.SearchResults[0];
-            if (!top.IsFolder)
-            {
-                try { LauncherService.Launch(top.Model, VM.Store); OverlayShouldHide?.Invoke(); }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(ex.Message, "Could not launch",
-                        MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
-            }
-            else OpenFolder(top);
+            if (top.IsFolder) OpenFolder(top);
+            else Launch(top, Keyboard.Modifiers.HasFlag(ModifierKeys.Control | ModifierKeys.Shift));
             e.Handled = true;
             return;
         }
+        if (inSearch && e.Key == Key.Down)
+        {
+            TileGrid.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
+            e.Handled = true;
+            return;
+        }
+        bool emptySearch = SearchBox.Text.Length == 0;
+        if (FolderLayer.Visibility != Visibility.Visible && emptySearch)
+        {
+            if (e.Key == Key.PageDown || (inSearch && e.Key == Key.Right) ||
+                (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Right))
+            { GoToPage(VM.CurrentPage + 1); e.Handled = true; return; }
+            if (e.Key == Key.PageUp || (inSearch && e.Key == Key.Left) ||
+                (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Left))
+            { GoToPage(VM.CurrentPage - 1); e.Handled = true; return; }
+        }
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.E)
         {
-            VM.EditMode = !VM.EditMode; RefreshDots(); e.Handled = true;
+            SetEditMode(!VM.EditMode); e.Handled = true;
         }
         else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.N)
         {
-            NewFolder_Click(sender, null); e.Handled = true;
+            NewFolder(); e.Handled = true;
         }
-        else if (e.Key == Key.F2 && FocusManager.GetFocusedElement(this) is Button b && b.Tag is ItemViewModel item)
+        else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Z && _lastRemoved != null)
+        {
+            Undo_Click(null, null); e.Handled = true;
+        }
+        else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.OemComma)
+        {
+            OpenSettings?.Invoke(); e.Handled = true;
+        }
+        else if (e.Key == Key.F2 && FocusedItem() is ItemViewModel item)
         {
             RenameItem(item); e.Handled = true;
         }
-        else if (e.Key == Key.Delete && FocusManager.GetFocusedElement(this) is Button b2 && b2.Tag is ItemViewModel item2)
+        else if (e.Key == Key.Delete && FocusedItem() is ItemViewModel item2)
         {
-            DeleteItem(item2); e.Handled = true;
+            RemoveItem(item2); e.Handled = true;
         }
     }
 
-    // ---- edit operations ----
+    private ItemViewModel FocusedItem() =>
+        Keyboard.FocusedElement is Button b && b.Tag is ItemViewModel item ? item : null;
 
-    private void EditToggle_Click(object sender, RoutedEventArgs e)
+    // ---- edit mode ----
+
+    public void SetEditMode(bool on)
     {
-        VM.EditMode = !VM.EditMode;
+        if (VM == null)
+            return;
+        if (VM.EditMode != on)
+            VM.EditMode = on;
+        foreach (var host in _wiggleHosts.ToList())
+            ApplyWiggle(host, on);
         RefreshDots();
     }
+
+    private void Done_Click(object sender, RoutedEventArgs e) => SetEditMode(false);
+
+    private void WiggleHost_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement host)
+            return;
+        if (!_wiggleHosts.Contains(host))
+            _wiggleHosts.Add(host);
+        ApplyWiggle(host, VM?.EditMode == true);
+    }
+
+    private void WiggleHost_Unloaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement host)
+            _wiggleHosts.Remove(host);
+    }
+
+    // Small alternating rotation with a random phase per tile, so the grid
+    // shivers instead of swinging in lockstep. Off when Windows animations are off.
+    private void ApplyWiggle(FrameworkElement host, bool on)
+    {
+        if (host.RenderTransform is not RotateTransform rot)
+            return;
+        if (rot.IsFrozen)
+        {
+            // Transforms declared in a DataTemplate are frozen and shared.
+            if (!on || !Animate)
+                return;
+            rot = new RotateTransform();
+            host.RenderTransform = rot;
+        }
+        if (!on || !Animate)
+        {
+            rot.BeginAnimation(RotateTransform.AngleProperty, null);
+            rot.Angle = 0;
+            return;
+        }
+        double amp = 1.4 + _rng.NextDouble() * 0.5;
+        var anim = new DoubleAnimation(-amp, amp, TimeSpan.FromMilliseconds(120 + _rng.Next(40)))
+        {
+            AutoReverse = true,
+            RepeatBehavior = RepeatBehavior.Forever,
+            BeginTime = TimeSpan.FromMilliseconds(_rng.Next(160)),
+            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
+        };
+        rot.BeginAnimation(RotateTransform.AngleProperty, anim);
+    }
+
+    private void Badge_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button b && b.Tag is ItemViewModel item)
+            RemoveItem(item);
+        e.Handled = true;
+    }
+
+    // ---- menus ----
+
+    private void MenuButton_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = BuildBoardMenu();
+        menu.PlacementTarget = MenuButton;
+        menu.Placement = PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+
+    private void Root_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        if (!ReferenceEquals(e.OriginalSource, Root) && e.OriginalSource is not UniformGrid)
+        {
+            e.Handled = true;
+            return;
+        }
+        Root.ContextMenu = BuildBoardMenu();
+    }
+
+    private ContextMenu BuildBoardMenu()
+    {
+        var menu = new ContextMenu();
+        menu.Items.Add(Item("Add apps…", () => Add_Click(null, null)));
+        menu.Items.Add(Item("New folder", NewFolder, "Ctrl+N"));
+        menu.Items.Add(Item(VM.EditMode ? "Done editing" : "Edit layout", () => SetEditMode(!VM.EditMode), "Ctrl+E"));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Settings", () => OpenSettings?.Invoke(), "Ctrl+,"));
+        menu.Items.Add(Item("Hide", () => OverlayShouldHide?.Invoke(), "Esc"));
+        return menu;
+    }
+
+    private static MenuItem Item(string header, Action click, string gesture = null)
+    {
+        var mi = new MenuItem { Header = header, InputGestureText = gesture };
+        mi.Click += (_, _) => click();
+        return mi;
+    }
+
+    private void Tile_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        if (sender is not Button b || b.Tag is not ItemViewModel item)
+            return;
+        var menu = new ContextMenu();
+        bool inFolder = ActiveFolder != null && ActiveFolder.Children.Contains(item);
+        menu.Items.Add(Item("Open", () => Tile_Click(new Button { Tag = item }, null)));
+        if (!item.IsFolder)
+        {
+            menu.Items.Add(Item("Run as administrator", () => Launch(item, true)));
+            if (item.ResolvedTarget != null)
+                menu.Items.Add(Item("Open file location", () => RevealInExplorer(item.ResolvedTarget)));
+        }
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Rename", () => RenameItem(item), "F2"));
+        if (inFolder)
+        {
+            menu.Items.Add(Item("Move out of folder", () => MoveOutOfFolder(item)));
+        }
+        else
+        {
+            var move = new MenuItem { Header = "Move to page" };
+            int pages = Math.Max(VM.PageCount, item.Model.Page + 1) + 1;
+            for (int p = 0; p < pages; p++)
+            {
+                int page = p;
+                var mi = new MenuItem
+                {
+                    Header = p == pages - 1 && p >= VM.PageCount ? $"New page {p + 1}" : $"Page {p + 1}",
+                    IsChecked = item.Model.Page == p,
+                };
+                mi.Click += (_, _) => MoveToPage(item, page);
+                move.Items.Add(mi);
+            }
+            menu.Items.Add(move);
+        }
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item(item.IsFolder ? "Remove folder" : "Remove", () => RemoveItem(item), "Del"));
+        b.ContextMenu = menu;
+    }
+
+    private void RevealInExplorer(string path)
+    {
+        try { Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true }); }
+        catch { }
+        OverlayShouldHide?.Invoke();
+    }
+
+    // ---- edit operations ----
 
     private void Add_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new WpfOpenFileDialog
         {
+            Title = "Add apps",
             Multiselect = true,
-            Filter = "Apps and shortcuts (*.lnk;*.exe)|*.lnk;*.exe|All files (*.*)|*.*",
+            Filter = "Apps and shortcuts (*.lnk;*.exe;*.url)|*.lnk;*.exe;*.url|All files (*.*)|*.*",
         };
-        if (dlg.ShowDialog() != true)
+        bool picked = false;
+        ShowModal(() => picked = dlg.ShowDialog(Window.GetWindow(this)) == true);
+        if (!picked)
             return;
+        var failed = new List<string>();
         foreach (var path in dlg.FileNames)
         {
             try
@@ -261,130 +689,125 @@ public partial class SpringboardView : UserControl
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Could not add {path}: {ex.Message}", "Add failed",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                failed.Add($"{Path.GetFileName(path)}: {ex.Message}");
             }
         }
         VM.RequestSave();
         VM.RefreshPage();
         Refresh();
+        if (failed.Count > 0)
+            ShowModal(() => MessageBox.Show(Window.GetWindow(this), string.Join("\n", failed),
+                "Some apps were not added", MessageBoxButton.OK, MessageBoxImage.Warning));
     }
 
-    private void NewFolder_Click(object sender, RoutedEventArgs e)
+    private void NewFolder()
     {
-        var name = PromptText("New folder", "Folder name:");
-        if (name == null)
-            return;
-        var model = new WinLaunch.Legacy.ICItem
+        ShowPrompt("New folder", "", "Create", name =>
         {
-            IsFolder = true,
-            Name = name,
-        };
-        VM.AddModel(model, VM.CurrentPage);
-        VM.RequestSave();
-        VM.RefreshPage();
-        Refresh();
-    }
-
-    private void Menu_Open(object sender, RoutedEventArgs e)
-    {
-        if (MenuItemOf(sender) is ItemViewModel item)
-            Tile_Click(new Button { Tag = item }, null);
-    }
-
-    private void Menu_Rename(object sender, RoutedEventArgs e)
-    {
-        if (MenuItemOf(sender) is ItemViewModel item)
-            RenameItem(item);
-    }
-
-    private void Menu_Delete(object sender, RoutedEventArgs e)
-    {
-        if (MenuItemOf(sender) is ItemViewModel item)
-            DeleteItem(item);
-    }
-
-    private static ItemViewModel MenuItemOf(object sender)
-    {
-        // Context menus live outside the visual tree, so walk up to the menu
-        // and resolve the tile via its placement target.
-        if (sender is not MenuItem menuItem)
-            return null;
-        DependencyObject current = menuItem;
-        while (current != null)
-        {
-            if (current is ContextMenu ctx)
-                return (ctx.PlacementTarget as Button)?.Tag as ItemViewModel;
-            current = (current as MenuItem)?.Parent as DependencyObject;
-        }
-        return null;
-    }
-
-    private void TileMenu_Opened(object sender, RoutedEventArgs e)
-    {
-        if (sender is not ContextMenu menu)
-            return;
-        if (menu.PlacementTarget is not Button targetBtn || targetBtn.Tag is not ItemViewModel item)
-            return;
-        // Rebuild the "Move to page" submenu each time so it reflects reality.
-        for (int i = menu.Items.Count - 1; i >= 0; i--)
-            if (menu.Items[i] is MenuItem mi && mi.Header is string h && h.StartsWith("Move to page"))
-                menu.Items.RemoveAt(i);
-        if (VM.PageCount > 1 || true)
-        {
-            var move = new MenuItem { Header = "Move to page" };
-            for (int p = 0; p < Math.Max(VM.PageCount, item.Model.Page + 2); p++)
-            {
-                int page = p;
-                var mi = new MenuItem { Header = $"Page {p + 1}", IsChecked = item.Model.Page == p };
-                mi.Click += (_, _) =>
-                {
-                    VM.TopItems.Remove(item);
-                    VM.AddModel(item.Model, page);
-                    VM.RequestSave();
-                    VM.RefreshPage();
-                    Refresh();
-                };
-                move.Items.Add(mi);
-            }
-            menu.Items.Add(move);
-        }
+            var model = new WinLaunch.Legacy.ICItem { IsFolder = true, Name = name };
+            VM.AddModel(model, VM.CurrentPage);
+            VM.RequestSave();
+            VM.RefreshPage();
+            Refresh();
+        });
     }
 
     private void RenameItem(ItemViewModel item)
     {
-        var name = PromptText("Rename", $"Name for \"{item.Name}\":", item.Name);
-        if (name == null)
-            return;
-        item.Model.Name = name;
-        item.NotifyRenamed();
-        item.LoadIcon();
-        VM.RequestSave();
+        ShowPrompt($"Rename \"{item.Name}\"", item.Name, "Save", name =>
+        {
+            item.Model.Name = name;
+            item.NotifyRenamed();
+            if (ActiveFolder == item)
+                FolderTitle.Text = name;
+            VM.RequestSave();
+        });
     }
 
-    private void DeleteItem(ItemViewModel item)
+    private void MoveToPage(ItemViewModel item, int page)
     {
-        var where = ActiveFolder != null && ActiveFolder.Children.Contains(item)
-            ? $" from \"{ActiveFolder.Name}\""
-            : "";
-        if (MessageBox.Show($"Remove \"{item.Name}\"{where}? The app itself is not uninstalled.",
-                "Remove", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+        VM.TopItems.Remove(item);
+        VM.AddModel(item.Model, page);
+        VM.RequestSave();
+        VM.RecountPages();
+        VM.RefreshPage();
+        Refresh();
+    }
+
+    private void MoveOutOfFolder(ItemViewModel item)
+    {
+        var folder = ActiveFolder;
+        if (folder == null)
             return;
-        if (ActiveFolder != null && ActiveFolder.Children.Contains(item))
+        folder.Children.Remove(item);
+        folder.Model.Items.Remove(item.Model);
+        VM.AddModel(item.Model, VM.CurrentPage);
+        if (folder.Children.Count == 0)
+            CloseFolder();
+        VM.RequestSave();
+        VM.RefreshPage();
+        Refresh();
+    }
+
+    // Removing a tile never uninstalls anything; it is undoable for a few
+    // seconds (button or Ctrl+Z), and every save keeps a backup besides.
+    private void RemoveItem(ItemViewModel item)
+    {
+        var folder = ActiveFolder != null && ActiveFolder.Children.Contains(item) ? ActiveFolder : null;
+        if (folder != null)
         {
-            ActiveFolder.Children.Remove(item);
-            ActiveFolder.Model.Items.Remove(item.Model);
-            ActiveFolder.LoadIcon();
-            if (ActiveFolder.Children.Count == 0)
+            int index = folder.Children.IndexOf(item);
+            folder.Children.Remove(item);
+            folder.Model.Items.Remove(item.Model);
+            _lastRemoved = (item, folder, index, item.Model.Page, item.Model.GridIndex);
+            if (folder.Children.Count == 0)
                 CloseFolder();
         }
         else
         {
+            _lastRemoved = (item, null, VM.TopItems.IndexOf(item), item.Model.Page, item.Model.GridIndex);
             VM.TopItems.Remove(item);
         }
         VM.RequestSave();
         VM.RefreshPage();
         Refresh();
+        UndoText.Text = $"Removed \"{item.Name}\"";
+        PageDots.Visibility = Visibility.Collapsed;
+        UndoToast.Visibility = Visibility.Visible;
+        _undoTimer.Stop();
+        _undoTimer.Start();
+    }
+
+    private void Undo_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastRemoved is not { } r)
+            return;
+        if (r.folder != null)
+        {
+            int at = Math.Clamp(r.index, 0, r.folder.Children.Count);
+            r.folder.Children.Insert(at, r.item);
+            r.folder.Model.Items.Insert(Math.Clamp(r.index, 0, r.folder.Model.Items.Count), r.item.Model);
+            if (!VM.TopItems.Contains(r.folder))
+                VM.TopItems.Add(r.folder);
+        }
+        else
+        {
+            r.item.Model.Page = r.page;
+            r.item.Model.GridIndex = r.grid;
+            VM.TopItems.Insert(Math.Clamp(r.index, 0, VM.TopItems.Count), r.item);
+        }
+        _lastRemoved = null;
+        VM.RequestSave();
+        VM.RefreshPage();
+        Refresh();
+        HideUndo();
+    }
+
+    private void HideUndo()
+    {
+        _undoTimer.Stop();
+        UndoToast.Visibility = Visibility.Collapsed;
+        PageDots.Visibility = Visibility.Visible;
     }
 
     private void Retry_Click(object sender, RoutedEventArgs e)
@@ -397,14 +820,53 @@ public partial class SpringboardView : UserControl
     private void OpenData_Click(object sender, RoutedEventArgs e)
     {
         try { Process.Start(new ProcessStartInfo(VM.Store.Directory) { UseShellExecute = true }); }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message, "Could not open folder",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
+        catch { }
     }
 
-    private void Settings_Click(object sender, RoutedEventArgs e) => OpenSettings?.Invoke();
+    // ---- prompt ----
+
+    private void ShowPrompt(string title, string initial, string okText, Action<string> accept)
+    {
+        _promptAccept = accept;
+        PromptTitle.Text = title;
+        PromptOk.Content = okText;
+        PromptBox.Text = initial;
+        PromptLayer.Visibility = Visibility.Visible;
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            PromptBox.Focus();
+            PromptBox.SelectAll();
+        }), DispatcherPriority.Input);
+    }
+
+    private void PromptBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter) { PromptOk_Click(null, null); e.Handled = true; }
+    }
+
+    private void PromptOk_Click(object sender, RoutedEventArgs e)
+    {
+        var text = PromptBox.Text.Trim();
+        var accept = _promptAccept;
+        ClosePrompt();
+        if (text.Length > 0)
+            accept?.Invoke(text);
+    }
+
+    private void PromptCancel_Click(object sender, RoutedEventArgs e) => ClosePrompt();
+
+    private void ClosePrompt()
+    {
+        _promptAccept = null;
+        PromptLayer.Visibility = Visibility.Collapsed;
+    }
+
+    private static void ShowModal(Action show)
+    {
+        ModalDepth++;
+        try { show(); }
+        finally { ModalDepth--; }
+    }
 
     // ---- drag and drop ----
 
@@ -414,19 +876,32 @@ public partial class SpringboardView : UserControl
         {
             _dragStart = e.GetPosition(this);
             _dragItem = item;
+            if (!VM.EditMode)
+                _holdTimer.Start();
         }
+    }
+
+    private void Tile_PreviewMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        _holdTimer.Stop();
     }
 
     private void Tile_MouseMove(object sender, MouseEventArgs e)
     {
-        if (_dragItem == null || e.LeftButton != MouseButtonState.Pressed || !VM.EditMode)
+        if (_dragItem == null || e.LeftButton != MouseButtonState.Pressed)
             return;
         var pos = e.GetPosition(this);
-        if (Math.Abs(pos.X - _dragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
-            Math.Abs(pos.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
+        bool moved = Math.Abs(pos.X - _dragStart.X) >= SystemParameters.MinimumHorizontalDragDistance ||
+                     Math.Abs(pos.Y - _dragStart.Y) >= SystemParameters.MinimumVerticalDragDistance;
+        if (!moved)
             return;
-        DragDrop.DoDragDrop((DependencyObject)sender, _dragItem, WpfDragDropEffects.Move);
+        _holdTimer.Stop();
+        if (!VM.EditMode)
+            return;
+        var item = _dragItem;
         _dragItem = null;
+        DragDrop.DoDragDrop((DependencyObject)sender, item, WpfDragDropEffects.Move);
+        _suppressClick = false;
     }
 
     private void Tile_DragOver(object sender, DragEventArgs e)
@@ -442,21 +917,35 @@ public partial class SpringboardView : UserControl
         var source = (ItemViewModel)e.Data.GetData(typeof(ItemViewModel));
         if (sender is not Button b || b.Tag is not ItemViewModel target || source == target)
             return;
-        if (target.IsFolder && source.Model.Page == target.Model.Page)
+        e.Handled = true;
+        bool sourceTop = VM.TopItems.Contains(source);
+        bool targetTop = VM.TopItems.Contains(target);
+        if (target.IsFolder && targetTop && sourceTop && !source.IsFolder)
         {
-            // Drop into folder.
+            // Drop onto a folder: move the app inside it.
+            VM.TopItems.Remove(source);
+            target.Model.Items ??= new List<WinLaunch.Legacy.ICItem>();
             target.Model.Items.Add(source.Model);
             target.Children.Add(source);
-            VM.TopItems.Remove(source);
-            target.LoadIcon();
+        }
+        else if (sourceTop && targetTop)
+        {
+            (target.Model.GridIndex, source.Model.GridIndex) = (source.Model.GridIndex, target.Model.GridIndex);
+            (target.Model.Page, source.Model.Page) = (source.Model.Page, target.Model.Page);
+        }
+        else if (ActiveFolder != null && ActiveFolder.Children.Contains(source) &&
+                 ActiveFolder.Children.Contains(target))
+        {
+            // Reorder inside the open folder.
+            var kids = ActiveFolder.Children;
+            int to = kids.IndexOf(target);
+            kids.Move(kids.IndexOf(source), to);
+            ActiveFolder.Model.Items.Remove(source.Model);
+            ActiveFolder.Model.Items.Insert(to, source.Model);
         }
         else
         {
-            // Swap grid positions.
-            (target.Model.GridIndex, source.Model.GridIndex) =
-                (source.Model.GridIndex, target.Model.GridIndex);
-            (target.Model.Page, source.Model.Page) =
-                (source.Model.Page, target.Model.Page);
+            return;
         }
         VM.RequestSave();
         VM.RefreshPage();
@@ -466,25 +955,21 @@ public partial class SpringboardView : UserControl
     protected override void OnDrop(DragEventArgs e)
     {
         base.OnDrop(e);
-        if (e.Data.GetDataPresent(WpfDataFormats.FileDrop))
+        if (!e.Data.GetDataPresent(WpfDataFormats.FileDrop))
+            return;
+        foreach (var path in (string[])e.Data.GetData(WpfDataFormats.FileDrop))
         {
-            foreach (var path in (string[])e.Data.GetData(WpfDataFormats.FileDrop))
+            if (path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) ||
+                path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+                path.EndsWith(".url", StringComparison.OrdinalIgnoreCase))
             {
-                if (path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) ||
-                    path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                {
-                    try
-                    {
-                        var model = LinkImporter.Import(path, VM.Store);
-                        VM.AddModel(model, VM.CurrentPage);
-                    }
-                    catch { }
-                }
+                try { VM.AddModel(LinkImporter.Import(path, VM.Store), VM.CurrentPage); }
+                catch { }
             }
-            VM.RequestSave();
-            VM.RefreshPage();
-            Refresh();
         }
+        VM.RequestSave();
+        VM.RefreshPage();
+        Refresh();
     }
 
     private static T FindPanel<T>(ItemsControl control) where T : DependencyObject
@@ -503,54 +988,5 @@ public partial class SpringboardView : UserControl
                 queue.Enqueue(VisualTreeHelper.GetChild(current, i));
         }
         return null;
-    }
-
-    private static string PromptText(string title, string label, string initial = "")
-    {
-        var win = new Window
-        {
-            Title = title,
-            Width = 380,
-            Height = 180,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            ResizeMode = ResizeMode.NoResize,
-            Background = TryBrush("SolidBgBrush"),
-            Foreground = TryBrush("TextBrush"),
-        };
-        var panel = new StackPanel { Margin = new Thickness(20) };
-        panel.Children.Add(new TextBlock
-        {
-            Text = label, Margin = new Thickness(0, 0, 0, 10),
-            Foreground = TryBrush("TextBrush"), FontSize = 13,
-        });
-        var box = new TextBox { Text = initial };
-        box.SetResourceReference(StyleProperty, "SearchBox");
-        box.SelectAll();
-        panel.Children.Add(box);
-        var row = new StackPanel { Orientation = WpfOrientation.Horizontal, HorizontalAlignment = WpfHAlign.Right, Margin = new Thickness(0, 16, 0, 0) };
-        var ok = new Button { Content = "OK", Width = 90, Height = 36, IsDefault = true, Margin = new Thickness(0, 0, 8, 0) };
-        ok.SetResourceReference(StyleProperty, "PrimaryButton");
-        var cancel = new Button { Content = "Cancel", Width = 90, Height = 36, IsCancel = true };
-        cancel.SetResourceReference(StyleProperty, "TileButton");
-        string result = null;
-        ok.Click += (_, _) => { result = box.Text.Trim(); win.Close(); };
-        row.Children.Add(ok);
-        row.Children.Add(cancel);
-        panel.Children.Add(row);
-        win.Content = panel;
-        win.ShowDialog();
-        return string.IsNullOrEmpty(result) ? null : result;
-    }
-
-    private static System.Windows.Media.Brush TryBrush(string key)
-    {
-        try
-        {
-            var app = System.Windows.Application.Current;
-            if (app?.Resources[key] is System.Windows.Media.Brush b)
-                return b;
-        }
-        catch { }
-        return System.Windows.Media.Brushes.Transparent;
     }
 }

@@ -90,13 +90,13 @@
                 Click="Save_Click" Margin="0,0,8,0"
                 Style="{DynamicResource PrimaryButton}"/>
         <Button Content="Data folder" Width="110" Height="38" Click="Data_Click"
-                Margin="0,0,8,0" Style="{DynamicResource TileButton}" FontSize="13"/>
+                Margin="0,0,8,0" Style="{DynamicResource SecondaryButton}" FontSize="13"/>
         <Button Content="Backup now" Width="110" Height="38" Click="Backup_Click"
-                Style="{DynamicResource TileButton}" FontSize="13"/>
+                Style="{DynamicResource SecondaryButton}" FontSize="13"/>
       </StackPanel>
       <Button Content="Exit WinLaunch" Width="150" Height="34" HorizontalAlignment="Left"
               Margin="0,12,0,0" Click="Exit_Click" FontSize="13"
-              Style="{DynamicResource TileButton}"/>
+              Style="{DynamicResource SecondaryButton}"/>
       <TextBlock x:Name="VersionText" Margin="0,16,0,8" FontSize="12"
                  Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"/>
     </StackPanel>
