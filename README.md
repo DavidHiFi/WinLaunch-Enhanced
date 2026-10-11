@@ -71,9 +71,10 @@ dotnet run --project src/WinLaunch.Enhanced -- "<dataset-copy>" --smoke
 dotnet run --project tools/PreviewRender
 ```
 
-Measured on the reference machine: smoke over the full 90-tile dataset reports
-20/20 top-level icons with no load error; contrast pairs in both themes check
-at 4.70:1 or better (most above 7:1, see DESIGN.md).
+Measured on the reference machine: the verifier counts all 90 tiles with 0 broken
+links and a clean XML round-trip; smoke builds the real window offscreen over the
+full dataset with no load error; contrast pairs in both themes check at 4.70:1
+or better (most above 7:1, see DESIGN.md).
 
 ## Switching from original WinLaunch
 
