@@ -62,19 +62,43 @@ public static class Program
                     Directory.Delete(tmp, recursive: true);
                 store = new LegacyStore(tmp);
                 var win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
-                store.SaveItems(new List<ICItem>
+                var sys = Path.Combine(win, "System32");
+                // Generic Windows tools only, so no personal app names reach the README.
+                var apps = new (string Name, string Path)[]
                 {
-                    NewApp("File Explorer", Path.Combine(win, "explorer.exe"), 0),
-                    NewApp("Task Manager", Path.Combine(win, "System32", "taskmgr.exe"), 1),
-                    NewApp("Calculator", Path.Combine(win, "System32", "calc.exe"), 2),
-                    NewApp("Management Console", Path.Combine(win, "System32", "mmc.exe"), 3),
-                    new ICItem { IsFolder = true, Name = "System Tools", Page = 0, GridIndex = 4,
-                        Items = new List<ICItem>
-                        {
-                            NewApp("Registry Editor", Path.Combine(win, "regedit.exe"), 0),
-                            NewApp("Management Console", Path.Combine(win, "System32", "mmc.exe"), 1),
-                        } },
-                });
+                    ("File Explorer", Path.Combine(win, "explorer.exe")),
+                    ("Task Manager", Path.Combine(sys, "taskmgr.exe")),
+                    ("Calculator", Path.Combine(sys, "calc.exe")),
+                    ("Command Prompt", Path.Combine(sys, "cmd.exe")),
+                    ("PowerShell", Path.Combine(sys, "WindowsPowerShell", "v1.0", "powershell.exe")),
+                    ("Control Panel", Path.Combine(sys, "control.exe")),
+                    ("Remote Desktop", Path.Combine(sys, "mstsc.exe")),
+                    ("Registry Editor", Path.Combine(win, "regedit.exe")),
+                    ("Resource Monitor", Path.Combine(sys, "resmon.exe")),
+                    ("Volume Mixer", Path.Combine(sys, "sndvol.exe")),
+                    ("DirectX Diagnostics", Path.Combine(sys, "dxdiag.exe")),
+                    ("System Information", Path.Combine(sys, "msinfo32.exe")),
+                };
+                var items = apps.Select((a, i) => NewApp(a.Name, a.Path, i)).ToList();
+                ICItem Folder(string name, int index, params (string Name, string Path)[] children) =>
+                    new ICItem { IsFolder = true, Name = name, Page = 0, GridIndex = index,
+                        Items = children.Select((c, i) => NewApp(c.Name, c.Path, i)).ToList() };
+                items.Add(Folder("System Tools", items.Count,
+                    ("Event Viewer", Path.Combine(sys, "eventvwr.exe")),
+                    ("Disk Cleanup", Path.Combine(sys, "cleanmgr.exe")),
+                    ("Performance Monitor", Path.Combine(sys, "perfmon.exe")),
+                    ("System Configuration", Path.Combine(sys, "msconfig.exe")),
+                    ("Disk Management", Path.Combine(sys, "diskmgmt.msc")),
+                    ("Services", Path.Combine(sys, "services.msc")),
+                    ("Device Manager", Path.Combine(sys, "devmgmt.msc")),
+                    ("Task Scheduler", Path.Combine(sys, "taskschd.msc")),
+                    ("Computer Management", Path.Combine(sys, "compmgmt.msc"))));
+                items.Add(Folder("Accessibility", items.Count,
+                    ("Magnifier", Path.Combine(sys, "magnify.exe")),
+                    ("On-Screen Keyboard", Path.Combine(sys, "osk.exe")),
+                    ("Narrator", Path.Combine(sys, "narrator.exe")),
+                    ("Character Map", Path.Combine(sys, "charmap.exe"))));
+                store.SaveItems(items);
                 store.SaveSettings(new LegacySettings { Columns = 10, Rows = 5 });
             }
             outDir ??= dataDir != null

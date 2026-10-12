@@ -49,8 +49,11 @@ is in the session notes.
 
 ## Backdrop and layers
 
-Backdrop selector mirrors FreeDictate: Solid, Acrylic, Mica via
-`DWMWA_SYSTEMBACKDROP_TYPE`, legacy acrylic accent as fallback, immersive dark
+Backdrop choices: Wallpaper (default: the desktop wallpaper blurred once and
+cached, under an adjustable theme tint), Acrylic, Mica and Solid. Acrylic and
+Mica use `DWMWA_SYSTEMBACKDROP_TYPE` with the frame extended over the whole
+window and a transparent WPF clear color (without both, the opaque WPF surface
+hides the blur), legacy acrylic accent as fallback, immersive dark
 mode follows the theme, accent re-applied on every show with a forced
 recomposite. One translucent layer only: the window scrim carries the tint and
 every inner surface (tiles, sheet, dialogs) is solid card. A translucent sheet
@@ -68,9 +71,11 @@ for 4.5:1+ on paper). Both themes ship, both get rendered in the preview step.
 
 ## Typography
 
-Segoe UI Variable (system font). Reason: a native Windows utility should speak the OS voice,
-add zero download payload, and render crisply at small tile-label sizes. Monospace nowhere
-except the version string in Settings. No uppercase wide-tracked section labels.
+Default: FiraCode Nerd Font everywhere (board, menus, settings), with Segoe UI
+Variable Text and Segoe UI as fallbacks when the font is missing. Settings >
+Appearance offers every installed font (system and per-user), a text-size
+scale, and a label shadow toggle; all three apply live through the `UiFont`,
+`TextScale` and `LabelEffect` resources. No uppercase wide-tracked section labels.
 
 ## Tiles and iconography
 
@@ -78,11 +83,12 @@ except the version string in Settings. No uppercase wide-tracked section labels.
   folder sheet 12px, buttons 6px, search field 8px. Nothing pill-shaped except the page dots.
 - Icons are the app's real icons (extracted, cached). Missing icon: initial-letter tile
   in `--tile` with `--text-muted` letter, clearly a stand-in, never a fake logo.
-- Folders show up to 4 miniatures; more than 4 shows "＋n" as muted text, not invented art.
+- Folders show up to 9 miniatures in a 3x3 grid, using the apps' real icons.
 
 ## Motion spec
 
-- Overlay open: fade 120ms ease-out + 4px rise. Close: fade 100ms. Purpose: confirm the hotkey landed.
+- Overlay open: fade 140ms plus a Launchpad zoom from 1.06 to 1 over 220ms (cubic ease-out),
+  switchable in Settings and skipped when Windows animations are off. Close: fade 110ms.
 - Page change: 160ms horizontal slide. Purpose: spatial continuity across pages.
 - Folder open: sheet expands 180ms ease-out. Purpose: show containment.
 - Edit (wiggle) mode: ±1.2deg rotation on tiles, user-triggered only, stops on Esc/done.
@@ -104,5 +110,7 @@ Focus ring is 2px `--accent`, 7.72:1 against the scrim. Dialogs close on Esc.
 ## Performance budget
 
 Cold open under 600 ms to interactive tiles on the reference machine; 0% CPU at idle
-(no polling loops, event-driven hotkey); working set under 120 MB; icons decoded once,
+(event-driven hotkey; the only timer is the 120 ms hot-corner check, and it runs only
+while hot corners are on); working set target 120 MB (measured 158 MB with 256 px
+icons for 90 items, 2026-10-12); icons decoded once,
 frozen, and cached on disk; saves debounced 1 s with a pre-save backup, pruned to 10.

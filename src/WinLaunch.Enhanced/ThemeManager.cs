@@ -133,9 +133,12 @@ public static class ThemeManager
         r["FolderBandBrush"] = new SolidColorBrush(Themes.C(t.Bg)) { Opacity = t.Dark ? 0.78 : 0.82 };
         r["DimBrush"] = Alpha(Colors.Black, t.Dark ? 0.45 : 0.22);
         r["WallScrimBrush"] = new SolidColorBrush(Themes.C(t.Bg));
-        r["LabelBrush"] = new SolidColorBrush(t.Dark ? Colors.White : Themes.C(t.Text));
-        r["LabelShadowColor"] = t.Dark ? Colors.Black : Colors.White;
-        _shadowColor = t.Dark ? Colors.Black : Colors.White;
+        // Board labels sit on the wallpaper, whose brightness the theme cannot
+        // know, so every theme uses Launchpad's white text with a dark shadow.
+        // The folder band is a theme surface and uses the theme text instead.
+        r["LabelBrush"] = new SolidColorBrush(Colors.White);
+        r["LabelShadowColor"] = Colors.Black;
+        _shadowColor = Colors.Black;
         UpdateLabelEffect();
         r["DeleteBadgeBrush"] = new SolidColorBrush(t.Dark ? WpfColor.FromRgb(0x6C, 0x70, 0x86) : WpfColor.FromRgb(0x8C, 0x8F, 0xA1));
         if (WpfApplication.Current.MainWindow != null)

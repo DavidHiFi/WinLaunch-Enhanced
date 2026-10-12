@@ -471,10 +471,11 @@ public partial class SettingsWindow : Window
         _main.RegisterHotkey();
         if (!_main.HotkeyActive)
         {
+            var why = _main.HotkeyProblem();
             (s.HotControl, s.HotAlt, s.HotShift, s.HotWin, s.HotKeyExtend) = old;
             _main.RegisterHotkey();
             StopRecording();
-            _hotkeyStatus.Text = $"That shortcut is taken by another app. Kept {HotkeyFormat.Describe(s)}.";
+            _hotkeyStatus.Text = $"{why} Kept {HotkeyFormat.Describe(s)}.";
             _hotkeyStatus.SetResourceReference(TextBlock.ForegroundProperty, "WarnBrush");
             return;
         }
@@ -499,14 +500,14 @@ public partial class SettingsWindow : Window
             _hotkeyStatus.Text = "Off. Use the tray icon or the Start menu shortcut to open the launcher.";
             _hotkeyStatus.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
         }
-        else if (_main.HotkeyActive)
+        else if (!_main.HotkeyFailed)
         {
             _hotkeyStatus.Text = $"✓ {HotkeyFormat.Describe(_vm.Settings)} is ready";
             _hotkeyStatus.SetResourceReference(TextBlock.ForegroundProperty, "AccentBrush");
         }
         else
         {
-            _hotkeyStatus.Text = "Another app holds this shortcut. Pick a different one.";
+            _hotkeyStatus.Text = $"{_main.HotkeyProblem()} Pick a different one.";
             _hotkeyStatus.SetResourceReference(TextBlock.ForegroundProperty, "WarnBrush");
         }
     }

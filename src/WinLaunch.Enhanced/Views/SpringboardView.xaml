@@ -341,6 +341,10 @@
         <Border x:Name="FolderBand" Margin="0,18,0,0" CornerRadius="30" Padding="24,18"
                 Background="{DynamicResource FolderBandBrush}"
                 BorderBrush="{DynamicResource GlassBorderBrush}" BorderThickness="1">
+          <Border.Resources>
+            <SolidColorBrush x:Key="LabelBrush" Color="{DynamicResource TextColor}"/>
+            <x:Null x:Key="LabelEffect"/>
+          </Border.Resources>
           <ScrollViewer x:Name="FolderScroll" VerticalScrollBarVisibility="Hidden"
                         HorizontalScrollBarVisibility="Disabled" Focusable="False">
             <ItemsControl x:Name="FolderGrid" ItemTemplateSelector="{StaticResource TileSelector}"

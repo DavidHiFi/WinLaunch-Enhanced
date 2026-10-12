@@ -90,7 +90,7 @@ public static class IconService
                 bmp.Freeze();
                 return bmp;
             }
-            var src = ShellIcon.Get(target, IconPixels) ?? LegacyIcon(target);
+            var src = ShellIcon.FromMsc(target, IconPixels) ?? ShellIcon.Get(target, IconPixels) ?? LegacyIcon(target);
             if (src == null)
                 return GetInitialTile(Path.GetFileNameWithoutExtension(target));
             try
@@ -180,7 +180,7 @@ public static class IconService
         var mtime = File.Exists(target)
             ? File.GetLastWriteTimeUtc(target).Ticks.ToString()
             : (System.IO.Directory.Exists(target) ? "dir" : "missing");
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes("v3-256|" + target + "|" + mtime));
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes("v4-256|" + target + "|" + mtime));
         return Convert.ToHexString(bytes)[..16];
     }
 }

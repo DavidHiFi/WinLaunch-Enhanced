@@ -38,6 +38,12 @@ public static class AcrylicHelper
         public int SizeOfData;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Margins { public int Left, Right, Top, Bottom; }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref Margins margins);
+
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
@@ -55,6 +61,18 @@ public static class AcrylicHelper
             var handle = new WindowInteropHelper(window).Handle;
             if (handle == IntPtr.Zero)
                 return;
+            // DWM paints Acrylic/Mica behind the client area only when WPF
+            // clears to transparent and the frame covers the whole window;
+            // otherwise the opaque WPF surface hides the blur completely.
+            bool glass = backdrop != "Solid";
+            var source = HwndSource.FromHwnd(handle);
+            if (source?.CompositionTarget != null)
+                source.CompositionTarget.BackgroundColor = glass
+                    ? System.Windows.Media.Colors.Transparent
+                    : System.Windows.Media.Colors.Black;
+            var margins = glass ? new Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 } : new Margins();
+            try { DwmExtendFrameIntoClientArea(handle, ref margins); }
+            catch { }
             int darkMode = dark ? 1 : 0;
             try { DwmSetWindowAttribute(handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int)); }
             catch { }

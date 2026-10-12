@@ -21,6 +21,13 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        // A tray app that dies takes the hotkey with it. Log UI-thread errors
+        // and keep running instead of vanishing.
+        DispatcherUnhandledException += (_, ex) =>
+        {
+            LogError(ex.Exception);
+            ex.Handled = true;
+        };
         ThemeManager.EnsureStyles();
 
         bool quit = e.Args.Contains("--quit");
@@ -51,6 +58,17 @@ public partial class App : System.Windows.Application
         Listen(window);
         if (!e.Args.Contains("--background"))
             window.ShowOverlay();
+    }
+
+    private static void LogError(Exception ex)
+    {
+        try
+        {
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WinLaunch");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(Path.Combine(dir, "enhanced-errors.log"), $"[{DateTime.Now:yyyy-MM-dd h:mm:ss tt}] {ex}\n\n");
+        }
+        catch { }
     }
 
     private static void Signal(string name)

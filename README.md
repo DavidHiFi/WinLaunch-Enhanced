@@ -11,7 +11,7 @@ font works, set it in Appearance along with text scale and label shadow.
 
 ## Install
 
-Grab `WinLaunchEnhanced-2.0.0-Setup.exe` from the
+Grab `WinLaunchEnhanced-2.0.1-Setup.exe` from the
 [latest release](https://github.com/DavidHiFi/WinLaunch-Enhanced/releases/latest).
 The installer sets up Start-menu and desktop shortcuts, adds run-at-sign-in,
 checks the .NET 10 Desktop Runtime for you, and offers to launch the launcher

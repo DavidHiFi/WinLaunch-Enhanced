@@ -44,6 +44,10 @@ public partial class MainWindow : Window
         _hotkey.Pressed += () => Dispatcher.BeginInvoke(ToggleFromHotkey);
         PositionWindow();
         SetupTray();
+        // A window that starts hidden (--background at sign-in) never gets an
+        // HWND on its own, so SourceInitialized would never run and the hotkey
+        // would never register. Create the handle now.
+        new WindowInteropHelper(this).EnsureHandle();
     }
 
     public MainViewModel ViewModel => _vm;
@@ -140,7 +144,7 @@ public partial class MainWindow : Window
         RegisterHotkey();
         if (!HotkeyActive && _vm.Settings.HotKeyEnabled)
             _tray?.ShowBalloonTip(3000, "WinLaunch Enhanced",
-                $"The shortcut {HotkeyText()} is used by another app. Change it in Settings; the tray icon still works.",
+                $"{HotkeyProblem()} Change it in Settings; the tray icon still works.",
                 WinForms.ToolTipIcon.Warning);
         UpdateCorners();
     }
@@ -151,9 +155,20 @@ public partial class MainWindow : Window
         HotkeyActive = false;
         var s = _vm.Settings;
         var handle = new WindowInteropHelper(this).Handle;
-        if (s.HotKeyEnabled && handle != IntPtr.Zero)
+        if (s.HotKeyEnabled)
             HotkeyActive = _hotkey.Register(handle, s.HotAlt, s.HotControl, s.HotShift, s.HotWin, s.HotKeyExtend);
     }
+
+    // True only after Windows actually refused the shortcut; a window that
+    // has not tried yet (offscreen previews) is not reported as a failure.
+    public bool HotkeyFailed => !HotkeyActive && _hotkey.LastFailure != HotkeyFailure.None;
+
+    public string HotkeyProblem() => _hotkey.LastFailure switch
+    {
+        HotkeyFailure.Taken => $"Another app already uses {HotkeyText()}.",
+        HotkeyFailure.Invalid => $"{HotkeyText()} is not a valid shortcut.",
+        _ => $"Windows refused {HotkeyText()}.",
+    };
 
     public string HotkeyText() => HotkeyFormat.Describe(_vm.Settings);
 
@@ -215,8 +230,10 @@ public partial class MainWindow : Window
     {
         PositionWindow();
         ApplyComposition();
-        Visibility = Visibility.Visible;
-        Activate();
+        // Show(), not Visibility = Visible: the HWND exists from startup, and
+        // WPF only treats the window as shown after Show().
+        Show();
+        try { Activate(); } catch (InvalidOperationException) { }
         var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140));
         BeginAnimation(OpacityProperty, fade);
         if (_vm.Prefs.OpenAnimation && SystemParameters.ClientAreaAnimation)
