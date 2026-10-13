@@ -19,6 +19,9 @@ public sealed class EnhancedPrefs
     public bool RankByUse { get; set; } = true;
     public bool Calculator { get; set; } = true;
     public bool OpenAnimation { get; set; } = true;
+    public bool CheckForUpdates { get; set; } = true;
+    public bool IncludePreReleases { get; set; } = false;
+    public DateTime? LastUpdateCheck { get; set; } = null;
     public Dictionary<string, int> LaunchCounts { get; set; } = new();
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };

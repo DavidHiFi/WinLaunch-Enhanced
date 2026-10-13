@@ -47,6 +47,8 @@ public static class Program
             return PerfTest.Run(app, dataDir, perfAt + 1 < args.Length && !args[perfAt + 1].StartsWith("--") ? args[perfAt + 1] : "Wallpaper");
         if (args.Contains("--drag-test") && dataDir != null)
             return DragTest.Run(app, dataDir);
+        if (args.Contains("--update-test"))
+            return UpdateTest.Run();
 
         try
         {

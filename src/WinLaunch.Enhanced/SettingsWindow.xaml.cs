@@ -39,6 +39,7 @@ public partial class SettingsWindow : Window
     private bool _recording;
     private TextBlock _hotkeyText, _hotkeyStatus;
     private Border _hotkeyBox;
+    private Action _updateChangedHandler;
 
     private static readonly (string Key, string Glyph, string Title, string Subtitle)[] Pages =
     {
@@ -108,6 +109,12 @@ public partial class SettingsWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        if (_updateChangedHandler != null)
+        {
+            if (_main.Updates != null)
+                _main.Updates.Changed -= _updateChangedHandler;
+            _updateChangedHandler = null;
+        }
         if (_applyTimer.IsEnabled)
             ApplyNow();
         base.OnClosed(e);
@@ -143,6 +150,12 @@ public partial class SettingsWindow : Window
         PageTitle.Text = page.Title;
         PageSubtitle.Text = page.Subtitle;
         _recording = false;
+        if (_updateChangedHandler != null)
+        {
+            if (_main.Updates != null)
+                _main.Updates.Changed -= _updateChangedHandler;
+            _updateChangedHandler = null;
+        }
         PageHost.Children.Clear();
         switch (key)
         {
@@ -332,6 +345,115 @@ public partial class SettingsWindow : Window
         }
     }
 
+    // ---- updates ----
+
+    // The Updates card: status, a manual check, download and install, and the
+    // two update options. Status refreshes live while a check or download runs.
+    private void BuildUpdates()
+    {
+        var updates = _main.Updates;
+        if (updates == null)
+            return;
+        var p = _vm.Prefs;
+        var card = Section("Updates");
+        var statusHost = Row(card, "Status", null);
+        var status = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        statusHost.Content = status;
+        var checkHost = Row(card, "Check for updates", "Compares this copy with the newest release on GitHub");
+        var checkButton = new Button { Content = "Check now", MinWidth = 96 };
+        checkButton.SetResourceReference(StyleProperty, "SecondaryButton");
+        checkButton.Click += (_, _) => { _ = updates.CheckAsync(); };
+        checkHost.Content = checkButton;
+        var installHost = Row(card, "New version", null);
+        var installButton = new Button { MinWidth = 96 };
+        installButton.SetResourceReference(StyleProperty, "SecondaryButton");
+        installButton.Click += (_, _) =>
+        {
+            if (updates.Status == UpdateStatus.Downloading)
+            {
+                updates.CancelDownload();
+                return;
+            }
+            if (UpdateService.IsInstalled && updates.Available?.Installer != null)
+                _ = updates.InstallAsync();
+            else
+                Open(updates.Available?.PageUrl ?? UpdateRules.ReleasesPage);
+        };
+        installHost.Content = installButton;
+        Toggle(card, "Check for updates on startup", "Quietly asks GitHub for the newest release when WinLaunch starts",
+            p.CheckForUpdates, v =>
+            {
+                p.CheckForUpdates = v;
+                Changed();
+                if (v)
+                    _ = updates.CheckAsync();
+            });
+        Toggle(card, "Include preview releases", "Offer betas as well as finished releases",
+            p.IncludePreReleases, v => { p.IncludePreReleases = v; Changed(); });
+
+        string Checked() => updates.LastChecked is { } t
+            ? $"Last checked {t.ToLocalTime():yyyy-MM-dd h:mm tt}."
+            : "Never checked.";
+        void Refresh()
+        {
+            checkButton.IsEnabled = !updates.Busy;
+            checkButton.Content = updates.Status == UpdateStatus.Checking ? "Checking…" : "Check now";
+            var release = updates.Available;
+            switch (updates.Status)
+            {
+                case UpdateStatus.Checking:
+                    status.Text = "Checking GitHub for the newest release…";
+                    installHost.Content = Muted("Nothing to install yet.");
+                    break;
+                case UpdateStatus.Downloading when release != null:
+                    status.Text = $"Downloading version {release.Version}… {(int)(updates.Progress * 100)}%";
+                    installButton.Content = "Cancel";
+                    installHost.Content = installButton;
+                    break;
+                case UpdateStatus.Available when release != null:
+                    status.Text = $"Version {release.Version} is available (released {release.PublishedUtc:yyyy-MM-dd}). {Checked()}";
+                    if (UpdateService.IsInstalled && release.Installer != null)
+                    {
+                        installButton.Content = "Download and install";
+                    }
+                    else
+                    {
+                        status.Text += UpdateService.IsInstalled
+                            ? " This release has no checksum, so open it in the browser."
+                            : " This copy is portable, so the update opens in the browser.";
+                        installButton.Content = "View release…";
+                    }
+                    installHost.Content = installButton;
+                    break;
+                case UpdateStatus.Failed:
+                    status.Text = updates.Message ?? "The check failed.";
+                    installHost.Content = Muted("Nothing to install.");
+                    break;
+                case UpdateStatus.UpToDate:
+                    status.Text = $"You have the newest version ({UpdateService.Current}). {Checked()}";
+                    installHost.Content = Muted("Nothing to install.");
+                    break;
+                default:
+                    if (release != null)
+                    {
+                        status.Text = $"Version {release.Version} is available.";
+                        installButton.Content = UpdateService.IsInstalled && release.Installer != null
+                            ? "Download and install" : "View release…";
+                        installHost.Content = installButton;
+                    }
+                    else
+                    {
+                        status.Text = $"Version {UpdateService.Current}. {Checked()}";
+                        installHost.Content = Muted("Nothing to install.");
+                    }
+                    break;
+            }
+        }
+        _updateChangedHandler = () => Dispatcher.BeginInvoke(Refresh);
+        updates.Changed += _updateChangedHandler;
+        Refresh();
+    }
+
     private void BuildAbout()
     {
         var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 18) };
@@ -346,6 +468,8 @@ public partial class SettingsWindow : Window
         text.Children.Add(Muted("MIT license. Original WinLaunch (c) 2022 MrC0rrupted."));
         head.Children.Add(text);
         PageHost.Children.Add(head);
+
+        BuildUpdates();
 
         var card = Section("Your data");
         ActionRow(card, "Data folder", _vm.Store.Directory, "Open", () => Open(_vm.Store.Directory));

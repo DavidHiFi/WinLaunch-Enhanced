@@ -22,6 +22,10 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _cornerTimer;
     private WinForms.NotifyIcon _tray;
     private SettingsWindow _settings;
+    private UpdateService _updates;
+    private string _updateNotified;
+
+    public UpdateService Updates => _updates;
     private DateTime _cornerSince = DateTime.MaxValue;
     private bool _cornerArmed = true;
 
@@ -37,6 +41,8 @@ public partial class MainWindow : Window
         Board.Bind(vm);
         _cornerTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(120) };
         _cornerTimer.Tick += CornerTick;
+        _updates = new UpdateService(_vm.Prefs);
+        _updates.Changed += OnUpdatesChanged;
         if (smoke)
             return;
         Board.OverlayShouldHide += () => Dispatcher.BeginInvoke(HideOverlay);
@@ -45,6 +51,8 @@ public partial class MainWindow : Window
         _hotkey.Pressed += () => Dispatcher.BeginInvoke(ToggleFromHotkey);
         PositionWindow();
         SetupTray();
+        if (_vm.Prefs.CheckForUpdates)
+            _ = _updates.CheckAsync();
         // A window that starts hidden (--background at sign-in) never gets an
         // HWND on its own, so SourceInitialized would never run and the hotkey
         // would never register. Create the handle now.
@@ -118,6 +126,23 @@ public partial class MainWindow : Window
             else if (e.Button == WinForms.MouseButtons.Right)
                 ShowTrayMenu();
         };
+        _tray.BalloonTipClicked += (_, _) => Dispatcher.BeginInvoke(() =>
+        {
+            OpenSettings();
+            _settings?.SelectPage("about");
+        });
+    }
+
+    // Runs on a background thread; the balloon goes up on the UI thread, once per version.
+    private void OnUpdatesChanged()
+    {
+        var release = _updates?.Available;
+        if (release == null || release.Version.ToString() == _updateNotified)
+            return;
+        _updateNotified = release.Version.ToString();
+        Dispatcher.BeginInvoke(() => _tray?.ShowBalloonTip(5000, "WinLaunch Enhanced",
+            $"Version {release.Version} is available. Right-click the tray icon to update.",
+            WinForms.ToolTipIcon.Info));
     }
 
     // The tray menu uses the same themed WPF menu as the board instead of the
@@ -135,6 +160,10 @@ public partial class MainWindow : Window
             try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(_vm.Store.Directory) { UseShellExecute = true }); }
             catch { }
         }));
+        if (_updates?.Available is { } release)
+            menu.Items.Add(MenuItem($"Update to {release.Version}…", "", () => { OpenSettings(); _settings?.SelectPage("about"); }));
+        else
+            menu.Items.Add(MenuItem("Check for updates", "", () => { OpenSettings(); _settings?.SelectPage("about"); }));
         menu.Items.Add(new System.Windows.Controls.Separator());
         var quit = MenuItem("Quit", "", Close);
         quit.Tag = "danger";
@@ -417,6 +446,7 @@ public partial class MainWindow : Window
         _cornerTimer.Stop();
         try { if (!SkipSaveOnClose) _vm.SaveNow(); } catch { }
         _hotkey.Dispose();
+        try { if (_updates != null) { _updates.Changed -= OnUpdatesChanged; _updates.Dispose(); } } catch { }
         if (_tray != null)
         {
             _tray.Visible = false;

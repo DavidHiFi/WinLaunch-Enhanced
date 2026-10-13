@@ -74,7 +74,7 @@ Settings change the launcher as you adjust them:
   alphabetical sorting with folders first.
 - Search: rank by use, calculator, and clearing the usage history.
 - Shortcuts: the global shortcut, the fullscreen guard and hot corners.
-- About: back up, export and import `.WLbackup` files, reload, and clear all icons.
+- About: updates (check on startup, manual check, download and install), back up, export and import `.WLbackup` files, reload, and clear all icons.
 
 ![General settings](docs/settings-dark-general.png)
 ![Appearance settings](docs/settings-dark-appearance.png)
@@ -83,7 +83,7 @@ Settings change the launcher as you adjust them:
 ## Not ported
 
 Double-tap, middle-mouse, gamepad and voice activation, the desktop shortcut
-watcher, custom background images, the update checker, and languages other than
+watcher, custom background images, and languages other than
 English. See DESIGN.md for the visual direction if you want to contribute.
 
 ## Build and run
@@ -113,6 +113,9 @@ dotnet run --project src/WinLaunch.Enhanced -- "<dataset-copy>" --smoke
 
 # Re-renders the screenshots in docs/.
 dotnet run --project tools/PreviewRender
+
+# Checks the updater rules against canned release lists (no network).
+dotnet run --project tools/PreviewRender -- --update-test
 
 # Moves the real mouse through the drags on a copy of your data (into a folder,
 # press and drag at once, live reflow, app onto app, empty spot, hold then drag,
