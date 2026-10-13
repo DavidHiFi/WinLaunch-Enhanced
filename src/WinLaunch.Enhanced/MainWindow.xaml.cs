@@ -54,9 +54,29 @@ public partial class MainWindow : Window
     public MainViewModel ViewModel => _vm;
     public ThemeCompat Compat => _compat;
 
+    // Shows the window once, invisible and off-screen, so the first real open
+    // does not pay for creating the full-screen render surfaces and caches.
+    public void Prewarm()
+    {
+        PositionWindow();
+        ApplyComposition();
+        double left = Left;
+        Left = -32000;
+        Alpha = 0;
+        ShowActivated = false;
+        Show();
+        UpdateLayout();
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            Visibility = Visibility.Hidden;
+            Left = left;
+            ShowActivated = true;
+        }), DispatcherPriority.ContextIdle);
+    }
+
     public void HideToTray()
     {
-        Opacity = 0;
+        Alpha = 0;
         Visibility = Visibility.Hidden;
     }
 
@@ -139,8 +159,31 @@ public partial class MainWindow : Window
         return mi;
     }
 
+    // Whole-window opacity for the open and close fades. Window.Opacity only
+    // works on per-pixel layered windows, which are slow at fullscreen, so the
+    // fade uses a constant-alpha layered window that DWM blends on the GPU.
+    public static readonly DependencyProperty AlphaProperty = DependencyProperty.Register(
+        nameof(Alpha), typeof(double), typeof(MainWindow),
+        new PropertyMetadata(1.0, (d, e) => ((MainWindow)d).ApplyAlpha((double)e.NewValue)));
+
+    public double Alpha
+    {
+        get => (double)GetValue(AlphaProperty);
+        set => SetValue(AlphaProperty, value);
+    }
+
+    private void ApplyAlpha(double alpha)
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle != IntPtr.Zero)
+            WindowFrame.SetAlpha(handle, alpha);
+    }
+
     private void Window_SourceInitialized(object sender, EventArgs e)
     {
+        var handle = new WindowInteropHelper(this).Handle;
+        WindowFrame.Prepare(handle);
+        ApplyAlpha(Alpha);
         ApplyComposition();
         RegisterHotkey();
         if (!HotkeyActive && _vm.Settings.HotKeyEnabled)
@@ -192,13 +235,23 @@ public partial class MainWindow : Window
         var mode = ThemeManager.CurrentBackdrop;
         var wall = mode == "Wallpaper" ? WallpaperBackdrop.GetBlurred(null, _vm.Prefs.Blur) : null;
         bool live = mode is "Blur" or "Acrylic";
-        // Live blur needs a see-through window, but fully transparent pixels are
-        // click-through on Windows. HitTestable is alpha 1: invisible to the eye,
-        // yet right-clicks, wheel turns and empty-space clicks still reach the board.
+        // Live blur: a transparent clear color plus the glass frame extended over
+        // the whole window lets DWM draw the blur behind WPF's content. The window
+        // is not per-pixel layered, so every pixel stays clickable and WPF renders
+        // straight to the GPU instead of copying each frame back for the desktop.
         if (live)
-            Background = HitTestable;
+            Background = Brushes.Transparent;
         else
             SetResourceReference(BackgroundProperty, "SolidBgBrush");
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle != IntPtr.Zero)
+        {
+            var src = HwndSource.FromHwnd(handle);
+            if (src?.CompositionTarget != null)
+                src.CompositionTarget.BackgroundColor = live ? Colors.Transparent :
+                    (System.Windows.Application.Current.Resources["BgColor"] as System.Windows.Media.Color?) ?? Colors.Black;
+            WindowFrame.ExtendGlass(handle, live);
+        }
         AcrylicHelper.Apply(this, live ? mode : "Solid", ThemeManager.IsDark());
         BackdropImage.Source = wall;
         BackdropImage.Visibility = wall != null ? Visibility.Visible : Visibility.Collapsed;
@@ -211,15 +264,6 @@ public partial class MainWindow : Window
     // Set when a backup is being imported: the restart must not write the old state back over it.
     public static bool SkipSaveOnClose;
 
-    private static readonly SolidColorBrush HitTestable = CreateHitTestable();
-
-    private static SolidColorBrush CreateHitTestable()
-    {
-        var brush = new SolidColorBrush(System.Windows.Media.Color.FromArgb(1, 0, 0, 0));
-        brush.Freeze();
-        return brush;
-    }
-
     public void ReapplyComposition() => ApplyComposition();
 
     private void ToggleFromHotkey()
@@ -231,7 +275,7 @@ public partial class MainWindow : Window
 
     public void ToggleOverlay()
     {
-        if (Visibility == Visibility.Visible && Opacity > 0.5)
+        if (Visibility == Visibility.Visible && Alpha > 0.5)
             HideOverlay();
         else
             ShowOverlay();
@@ -241,19 +285,28 @@ public partial class MainWindow : Window
     {
         PositionWindow();
         ApplyComposition();
+        BeginAnimation(AlphaProperty, null);
+        Alpha = 0;
         // Show(), not Visibility = Visible: the HWND exists from startup, and
         // WPF only treats the window as shown after Show().
         Show();
         try { Activate(); } catch (InvalidOperationException) { }
-        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140));
-        BeginAnimation(OpacityProperty, fade);
+        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+        };
+        BeginAnimation(AlphaProperty, fade);
         if (_vm.Prefs.OpenAnimation && SystemParameters.ClientAreaAnimation)
         {
             // Launchpad zoom: the board settles in from slightly larger.
             var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
             var dur = TimeSpan.FromMilliseconds(220);
+            // The board zooms as one cached bitmap, then returns to live rendering.
+            BoardHost.CacheMode = new BitmapCache { RenderAtScale = 1.06, SnapsToDevicePixels = true };
+            var zoomY = new DoubleAnimation(1.06, 1, dur) { EasingFunction = ease };
+            zoomY.Completed += (_, _) => BoardHost.CacheMode = null;
             BoardZoom.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, new DoubleAnimation(1.06, 1, dur) { EasingFunction = ease });
-            BoardZoom.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, new DoubleAnimation(1.06, 1, dur) { EasingFunction = ease });
+            BoardZoom.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, zoomY);
         }
         Board.FocusForOpen();
     }
@@ -262,13 +315,16 @@ public partial class MainWindow : Window
     {
         if (Visibility != Visibility.Visible)
             return;
-        var anim = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(110));
+        var anim = new DoubleAnimation(Alpha, 0, TimeSpan.FromMilliseconds(110))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn },
+        };
         anim.Completed += (_, _) =>
         {
-            if (Opacity < 0.05)
+            if (Alpha < 0.05)
                 Visibility = Visibility.Hidden;
         };
-        BeginAnimation(OpacityProperty, anim);
+        BeginAnimation(AlphaProperty, anim);
     }
 
     private void Window_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)

@@ -65,6 +65,8 @@ public partial class App : System.Windows.Application
         Listen(window);
         if (!e.Args.Contains("--background"))
             window.ShowOverlay();
+        else
+            window.Prewarm();
     }
 
     private static void LogError(Exception ex)

@@ -352,14 +352,36 @@ public partial class SpringboardView : UserControl
         SizeFolderGrid(folder);
         FolderScroll.ScrollToTop();
         // Launchpad pushes the board out of focus behind an open folder.
-        PageHost.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 16 };
+        // It is cached and blurred behind the folder. Only the blur radius
+        // and the two layers' own opacities animate, so no frame re-renders the
+        // board or composites a full-screen layer offscreen.
+        var blur = new System.Windows.Media.Effects.BlurEffect
+        {
+            Radius = Animate ? 0 : 16, RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance,
+        };
+        // Cached around the blur at half resolution: the blur hides the lost
+        // detail and costs a quarter as much while the radius animates.
+        BoardLayer.CacheMode = new BitmapCache { RenderAtScale = 0.5 };
+        PageHost.Effect = blur;
+        FolderLayer.Opacity = 1;
+        // Clear what an animated close left behind (opacity 0, scale 0.94).
+        FolderPanel.BeginAnimation(OpacityProperty, null);
+        FolderDim.BeginAnimation(OpacityProperty, null);
+        FolderScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        FolderScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         if (Animate)
         {
             var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
             var dur = TimeSpan.FromMilliseconds(200);
+            // The folder scales in as one cached bitmap, then renders live again.
+            FolderPanel.CacheMode = new BitmapCache { SnapsToDevicePixels = true };
+            var grow = new DoubleAnimation(0.9, 1, dur) { EasingFunction = ease };
+            grow.Completed += (_, _) => FolderPanel.CacheMode = null;
             FolderScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.9, 1, dur) { EasingFunction = ease });
-            FolderScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.9, 1, dur) { EasingFunction = ease });
-            FolderLayer.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)));
+            FolderScale.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
+            FolderPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)) { EasingFunction = ease });
+            FolderDim.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, dur) { EasingFunction = ease });
+            blur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, new DoubleAnimation(0, 16, dur) { EasingFunction = ease });
         }
         // Keyboard users land on the first app; a mouse open leaves no tile
         // focused, so the only plate is the one under the pointer.
@@ -399,22 +421,35 @@ public partial class SpringboardView : UserControl
         }
         CommitFolderTitle();
         ActiveFolder = null;
-        PageHost.Effect = null;
+        void Finish()
+        {
+            FolderLayer.Visibility = Visibility.Collapsed;
+            FolderPanel.CacheMode = null;
+            PageHost.Effect = null;
+            BoardLayer.CacheMode = null;
+        }
         if (!animate || !Animate)
         {
-            FolderLayer.BeginAnimation(OpacityProperty, null);
-            FolderLayer.Visibility = Visibility.Collapsed;
+            FolderPanel.BeginAnimation(OpacityProperty, null);
+            FolderDim.BeginAnimation(OpacityProperty, null);
+            Finish();
             return;
         }
-        var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(130));
+        var dur = TimeSpan.FromMilliseconds(140);
+        var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
+        var fade = new DoubleAnimation(0, dur) { EasingFunction = ease };
         fade.Completed += (_, _) =>
         {
             if (ActiveFolder == null)
-                FolderLayer.Visibility = Visibility.Collapsed;
+                Finish();
         };
-        FolderScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(1, 0.94, TimeSpan.FromMilliseconds(130)));
-        FolderScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(1, 0.94, TimeSpan.FromMilliseconds(130)));
-        FolderLayer.BeginAnimation(OpacityProperty, fade);
+        FolderPanel.CacheMode = new BitmapCache { SnapsToDevicePixels = true };
+        FolderScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.94, dur) { EasingFunction = ease });
+        FolderScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.94, dur) { EasingFunction = ease });
+        FolderPanel.BeginAnimation(OpacityProperty, new DoubleAnimation(0, dur) { EasingFunction = ease });
+        FolderDim.BeginAnimation(OpacityProperty, fade);
+        if (PageHost.Effect is System.Windows.Media.Effects.BlurEffect blur)
+            blur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, new DoubleAnimation(0, dur) { EasingFunction = ease });
     }
 
     private void FolderTitle_KeyDown(object sender, KeyEventArgs e)
@@ -829,6 +864,18 @@ public partial class SpringboardView : UserControl
         if (!item.IsFolder)
         {
             items.Add(Item("Run as administrator", () => Launch(item, true), "Ctrl+Shift+Enter", ""));
+            // The original's per-app checkbox: when ticked, a normal click runs it elevated too.
+            var always = new MenuItem
+            {
+                Header = "Always run as administrator", IsCheckable = true, IsChecked = item.Model.RunAsAdmin,
+                Icon = "", StaysOpenOnClick = false,
+            };
+            always.Click += (_, _) =>
+            {
+                item.Model.RunAsAdmin = always.IsChecked;
+                VM.RequestSave();
+            };
+            items.Add(always);
             if (item.ResolvedTarget != null && !LegacyStore.IsUrl(item.ResolvedTarget))
                 items.Add(Item("Open file location", () => RevealInExplorer(item.ResolvedTarget), null, ""));
         }

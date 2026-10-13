@@ -41,7 +41,8 @@ Enhanced reads and writes the same files as WinLaunch 0.7.x, in the same place
   rank the apps you open most first. Type a sum such as `12*4.5` to get the answer.
 - Change pages with the mouse wheel, a swipe, the page dots, PageUp and PageDown,
   or Ctrl+Left and Ctrl+Right.
-- Right-click an app for Open, Run as administrator, Open file location, Edit,
+- Right-click an app for Open, Run as administrator, Always run as administrator
+  (a tick that makes a normal click run it elevated), Open file location, Edit,
   Rename, Move to page and Remove. Right-click a folder to open, edit, rename,
   move or remove it.
 - Right-click empty space, or use the `+` and `...` buttons, to add an app or
@@ -117,6 +118,10 @@ dotnet run --project tools/PreviewRender
 # folder, app onto app, empty spot, hold then drag, out of a folder, reorder
 # inside a folder, edge paging). Your cursor moves on its own for a few seconds.
 dotnet run --project tools/PreviewRender -- --data "%APPDATA%\WinLaunch" --drag-test
+
+# Opens the real launcher full screen on a copy of your data and prints frame
+# times for opening, edit-mode wiggle, a drag, a page change and a folder.
+dotnet run --project tools/PreviewRender -- --data "%APPDATA%\WinLaunch" --perf Acrylic
 
 # Works on a copy of a dataset: opens every right-click menu (board, tiles, open
 # folder) and checks web links, folder shortcuts, the Start menu scan and custom icons.

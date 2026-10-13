@@ -42,6 +42,9 @@ public static class Program
             if (args[i] == "--route-test") routeTest = true;
         }
         SpringboardView.AnimationsOff = true;
+        int perfAt = Array.IndexOf(args, "--perf");
+        if (perfAt >= 0 && dataDir != null)
+            return PerfTest.Run(app, dataDir, perfAt + 1 < args.Length && !args[perfAt + 1].StartsWith("--") ? args[perfAt + 1] : "Wallpaper");
         if (args.Contains("--drag-test") && dataDir != null)
             return DragTest.Run(app, dataDir);
 
@@ -263,6 +266,18 @@ public static class Program
         var gridPanel = Find<System.Windows.Controls.Primitives.UniformGrid>(tileGrid, _ => true);
         if (gridPanel != null) Check("board grid gap", gridPanel, () => root.ContextMenu);
         if (appTile != null) Check("app tile", appTile, () => appTile.ContextMenu);
+        if (appTile != null)
+        {
+            var model = ((ItemViewModel)appTile.Tag).Model;
+            bool was = model.RunAsAdmin;
+            var tick = appTile.ContextMenu.Items.OfType<System.Windows.Controls.MenuItem>()
+                .First(m => (string)m.Header == "Always run as administrator");
+            tick.IsChecked = !tick.IsChecked;
+            tick.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.MenuItem.ClickEvent));
+            bool flipped = model.RunAsAdmin == !was;
+            if (!flipped) fails++;
+            Console.WriteLine($"ROUTE {(flipped ? "PASS" : "FAIL")} always-run-as-admin tick: {was} -> {model.RunAsAdmin}");
+        }
         if (folderTile != null)
         {
             Check("folder tile", folderTile, () => folderTile.ContextMenu);

@@ -79,8 +79,13 @@
         <Button.ContextMenu>
           <ContextMenu/>
         </Button.ContextMenu>
+        <!-- Cached as one bitmap so wiggling and hover scaling move a finished
+             image instead of redrawing the icon and label shadows every frame. -->
         <Grid x:Name="WiggleHost" Loaded="WiggleHost_Loaded" Unloaded="WiggleHost_Unloaded"
               RenderTransformOrigin="0.5,0.5" VerticalAlignment="Center">
+          <Grid.CacheMode>
+            <BitmapCache RenderAtScale="1.25" SnapsToDevicePixels="True"/>
+          </Grid.CacheMode>
           <Grid.RenderTransform>
             <RotateTransform/>
           </Grid.RenderTransform>
@@ -121,8 +126,13 @@
         <Button.ContextMenu>
           <ContextMenu/>
         </Button.ContextMenu>
+        <!-- Cached as one bitmap so wiggling and hover scaling move a finished
+             image instead of redrawing the icon and label shadows every frame. -->
         <Grid x:Name="WiggleHost" Loaded="WiggleHost_Loaded" Unloaded="WiggleHost_Unloaded"
               RenderTransformOrigin="0.5,0.5" VerticalAlignment="Center">
+          <Grid.CacheMode>
+            <BitmapCache RenderAtScale="1.25" SnapsToDevicePixels="True"/>
+          </Grid.CacheMode>
           <Grid.RenderTransform>
             <RotateTransform/>
           </Grid.RenderTransform>
@@ -243,7 +253,9 @@
     </Grid>
 
     <!-- Pages -->
-    <Grid x:Name="PageHost" Grid.Row="1" Margin="56,8,56,0" ClipToBounds="False"
+    <!-- Holds the board so its blur behind an open folder can be cached. -->
+    <Grid x:Name="BoardLayer" Grid.Row="1">
+    <Grid x:Name="PageHost" Margin="56,8,56,0" ClipToBounds="False"
           SizeChanged="PageHost_SizeChanged">
       <ItemsControl x:Name="TileGrid" ItemTemplateSelector="{StaticResource TileSelector}"
                     Focusable="False" HorizontalAlignment="Center" VerticalAlignment="Top"
@@ -295,6 +307,7 @@
                   Style="{DynamicResource GlassPillButton}"/>
         </StackPanel>
       </StackPanel>
+    </Grid>
     </Grid>
 
     <!-- Page dots and the undo toast share the bottom strip. -->

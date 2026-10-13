@@ -9,7 +9,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>WinLaunchEnhanced</AssemblyName>
     <RootNamespace>WinLaunch.Enhanced</RootNamespace>
-    <Version>2.3.1</Version>
+    <Version>2.4.0</Version>
     <Product>WinLaunch Enhanced</Product>
     <AssemblyTitle>WinLaunch Enhanced</AssemblyTitle>
     <Description>A fast, modern Launchpad-style app launcher for Windows</Description>
