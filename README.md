@@ -12,8 +12,12 @@ themes, with Catppuccin Mocha as the default.
 Download the setup file from the
 [latest release](https://github.com/DavidHiFi/WinLaunch-Enhanced/releases/latest).
 It installs for your user account only, adds Start menu and desktop shortcuts, can
-start WinLaunch when you sign in, and checks for the .NET 10 Desktop Runtime.
-Uninstalling from Windows Settings leaves your WinLaunch data in place.
+start WinLaunch when you sign in, and installs the .NET 10 Desktop Runtime for
+you when it is missing. Uninstalling from Windows Settings leaves your WinLaunch
+data in place.
+
+No install wanted? Grab the portable zip from the same release instead. It runs
+as is, keeps its data beside the exe, and never touches the registry.
 
 ![WinLaunch Enhanced in Catppuccin Mocha](docs/preview-dark.png)
 ![An open folder](docs/preview-dark-folder.png)
@@ -52,12 +56,12 @@ Enhanced reads and writes the same files as WinLaunch 0.7.x, in the same place
   arguments, search keywords, notes (shown in the tooltip) and whether it always
   runs as administrator. For a folder it changes the icon, name, notes and whether
   the app previews show.
-- Edit layout (hold a tile, press Ctrl+E or use the menu) makes the tiles wiggle,
-  and you can keep holding to drag straight away. Drop a tile on the middle of
-  an app to make a folder of the two, on a folder to move it inside, or anywhere
-  else to move it there. Drag an app out of an open folder to take it out, and
-  rest at the left or right edge to turn the page. The badge removes a tile, and
-  Undo or Ctrl+Z brings it back for a few seconds.
+- Edit layout (press Ctrl+E or use the menu) makes the tiles wiggle. Press and
+  move a tile to drag it at once, with or without edit mode. Drop a tile on the
+  middle of an app to make a folder of the two, on a folder to move it inside,
+  or anywhere else to move it there. Drag an app out of an open folder to take
+  it out, and rest at the left or right edge to turn the page. The badge removes
+  a tile, and Undo or Ctrl+Z brings it back for a few seconds.
 - Drop shortcuts or programs on the board to add them. Apps whose target is
   missing are dimmed.
 
@@ -66,7 +70,7 @@ Enhanced reads and writes the same files as WinLaunch 0.7.x, in the same place
 Settings change the launcher as you adjust them:
 
 - General: start with Windows, close after opening an app, click empty space to
-  close, opening animation, add and settings buttons, which screen to use, and covering the taskbar.
+  close, opening animation, add and settings buttons, which screen to use, and whether it covers the taskbar.
 - Appearance: seven themes (T3 Dark and Light, Catppuccin Mocha and Latte, Tokyo
   Night, Nord, Rose Pine); a wallpaper, blur, acrylic or solid background with dim
   and blur strength; font, text size, text shadow and whether names show.
@@ -74,7 +78,7 @@ Settings change the launcher as you adjust them:
   alphabetical sorting with folders first.
 - Search: rank by use, calculator, and clearing the usage history.
 - Shortcuts: the global shortcut, the fullscreen guard and hot corners.
-- About: updates (check on startup, manual check, download and install), back up, export and import `.WLbackup` files, reload, and clear all icons.
+- About: updates (check on startup, manual check, download and install), back up, export and import `.WLbackup` files, reload, and remove all apps.
 
 ![General settings](docs/settings-dark-general.png)
 ![Appearance settings](docs/settings-dark-appearance.png)
@@ -99,8 +103,9 @@ It uses your live data unless you pass a folder as the first argument:
 dotnet run --project src/WinLaunch.Enhanced -- "D:\some\WinLaunch-copy"
 ```
 
-`pwsh packaging\build.ps1` publishes the app and builds the installer into `dist\`
-(needs Inno Setup 6).
+`pwsh packaging\build.ps1` publishes the app, builds the installer and the
+portable zip into `dist\`, plus a `SHA256SUMS` file for both (needs Inno
+Setup 6).
 
 ## Checks
 

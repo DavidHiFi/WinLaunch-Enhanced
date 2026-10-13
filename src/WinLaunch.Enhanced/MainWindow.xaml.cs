@@ -153,7 +153,7 @@ public partial class MainWindow : Window
         {
             Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint,
         };
-        menu.Items.Add(MenuItem("Open WinLaunch", "", ShowOverlay, HotkeyText()));
+        menu.Items.Add(MenuItem("Open WinLaunch Enhanced", "", ShowOverlay, HotkeyText()));
         menu.Items.Add(MenuItem("Settings", "", OpenSettings));
         menu.Items.Add(MenuItem("Open data folder", "", () =>
         {

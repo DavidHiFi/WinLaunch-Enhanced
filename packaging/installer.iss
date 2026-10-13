@@ -75,6 +75,13 @@ Type: dirifempty; Name: "{app}"
 [Code]
 // The app targets .NET 10 and rolls forward to newer major runtimes, so any
 // Windows Desktop runtime 10 or later in the shared dotnet folder will do.
+const
+  RuntimeUrl = 'https://aka.ms/dotnet/10.0/windowsdesktop-runtime-win-x64.exe';
+  RuntimePage = 'https://dotnet.microsoft.com/download/dotnet/10.0';
+
+var
+  DownloadPage: TDownloadWizardPage;
+
 function HasDesktopRuntime10: Boolean;
 var
   Rec: TFindRec;
@@ -96,17 +103,64 @@ begin
   end;
 end;
 
-function InitializeSetup: Boolean;
+procedure InitializeWizard;
+begin
+  DownloadPage := CreateDownloadPage('Downloading .NET Runtime',
+    'Setup is downloading the .NET 10 Desktop Runtime (about 60 MB) from Microsoft.', nil);
+end;
+
+// Downloads the runtime installer to {tmp}. Empty string when the download
+// failed or the user cancelled it.
+function DownloadRuntimeFile: String;
+begin
+  Result := '';
+  if WizardSilent then
+  begin
+    try
+      DownloadTemporaryFile(RuntimeUrl, 'windowsdesktop-runtime.exe', '', nil);
+      Result := ExpandConstant('{tmp}\windowsdesktop-runtime.exe');
+    except
+    end;
+    exit;
+  end;
+  DownloadPage.Clear;
+  DownloadPage.Add(RuntimeUrl, 'windowsdesktop-runtime.exe', '');
+  DownloadPage.Show;
+  try
+    try
+      DownloadPage.Download;
+      Result := ExpandConstant('{tmp}\windowsdesktop-runtime.exe');
+    except
+    end;
+  finally
+    DownloadPage.Hide;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
 var
   Code: Integer;
+  Runtime: String;
 begin
-  Result := True;
-  if not HasDesktopRuntime10 then
+  if (CurStep = ssInstall) and not HasDesktopRuntime10 then
   begin
-    if SuppressibleMsgBox('WinLaunch Enhanced needs the .NET 10 Desktop Runtime (about 60 MB, from Microsoft).' + #13#10 + #13#10 +
-        'Open the download page now? Install it, then run this setup again.', mbConfirmation, MB_YESNO, IDNO) = IDYES then
-      ShellExec('open', 'https://dotnet.microsoft.com/download/dotnet/10.0', '', '', SW_SHOWNORMAL, ewNoWait, Code);
-    Result := False;
+    Runtime := DownloadRuntimeFile();
+    if Runtime = '' then
+    begin
+      if (not WizardSilent) and (SuppressibleMsgBox('The .NET 10 Desktop Runtime could not be downloaded.' + #13#10 + #13#10 +
+          'Open the download page now? Install it, then run this setup again.', mbConfirmation, MB_YESNO, IDNO) = IDYES) then
+        ShellExec('open', RuntimePage, '', '', SW_SHOWNORMAL, ewNoWait, Code);
+      RaiseException('The .NET 10 Desktop Runtime is required.');
+    end;
+    if Exec(Runtime, '/install /quiet /norestart', '', SW_SHOW, ewWaitUntilTerminated, Code) then
+    begin
+      if Code = 3010 then
+        RaiseException('The .NET runtime installed, but Windows needs a restart before WinLaunch can run.');
+      if (Code <> 0) or not HasDesktopRuntime10 then
+        RaiseException('The .NET 10 Desktop Runtime could not be installed.');
+    end
+    else
+      RaiseException('The .NET 10 Desktop Runtime could not be installed.');
   end;
 end;
 

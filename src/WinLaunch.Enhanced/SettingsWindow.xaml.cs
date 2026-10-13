@@ -263,7 +263,7 @@ public partial class SettingsWindow : Window
         var card = Section("Grid");
         Slider(card, "Columns", "Apps per row", 4, 14, s.Columns, 1, "", 0, 1,
             v => { s.Columns = (int)Math.Round(v); Changed(); });
-        Slider(card, "Rows", "Rows per page. A full page moves extra apps to the next page", 2, 8, s.Rows, 1, "", 0, 1,
+        Slider(card, "Rows", "Rows per page. Apps that don't fit move to the next page", 2, 8, s.Rows, 1, "", 0, 1,
             v => { s.Rows = (int)Math.Round(v); Changed(); });
         Slider(card, "Icon size", "Shrinks automatically if the grid gets tight", 0.8, 2.2, s.IconSize,
             100, "%", 0, 0.01, v => { s.IconSize = Math.Round(v, 2); Changed(); });
@@ -274,7 +274,7 @@ public partial class SettingsWindow : Window
         Toggle(card, "Page dots", "Shown when you have more than one page", s.PageIndicatorsVisible,
             v => { s.PageIndicatorsVisible = v; Changed(); });
         card = Section("Sorting");
-        Toggle(card, "Sort alphabetically", "Off keeps the order you arranged", s.SortItemsAlphabetically,
+        Toggle(card, "Sort alphabetically", "Off keeps your order", s.SortItemsAlphabetically,
             v => { s.SortItemsAlphabetically = v; Changed(reload: true); });
         Toggle(card, "Folders first", null, s.SortFoldersFirst,
             v => { s.SortFoldersFirst = v; Changed(reload: true); });
@@ -332,7 +332,7 @@ public partial class SettingsWindow : Window
             s.HotTopLeft = i == 0; s.HotTopRight = i == 1; s.HotBottomLeft = i == 2; s.HotBottomRight = i == 3;
             Changed();
         });
-        Slider(card, "Delay", "How long the pointer rests in the corner first, 0.0 s is instant", 0, 1.5, s.HotCornerDelay,
+        Slider(card, "Delay", "How long the pointer rests in the corner. 0 opens at once", 0, 1.5, s.HotCornerDelay,
             1, " s", 1, 0.1, v => { s.HotCornerDelay = Math.Round(v, 1); Changed(); });
 
         card = Section("In the launcher");
@@ -385,7 +385,7 @@ public partial class SettingsWindow : Window
                 Open(updates.Available?.PageUrl ?? UpdateRules.ReleasesPage);
         };
         installHost.Content = installButton;
-        Toggle(card, "Check for updates on startup", "Quietly asks GitHub for the newest release when WinLaunch starts",
+        Toggle(card, "Check for updates on startup", "Checks GitHub for the newest release when WinLaunch starts",
             p.CheckForUpdates, v =>
             {
                 p.CheckForUpdates = v;
@@ -493,8 +493,8 @@ public partial class SettingsWindow : Window
             _main.ApplyAll();
             Toast("Reloaded");
         });
-        ConfirmRow(card, "Clear all icons", "Removes every app and folder from the launcher. Your programs and files are not touched, and the old layout is kept in the backup folder",
-            "Clear…", "Are you sure?", "Yes, clear", () =>
+        ConfirmRow(card, "Remove all apps", "Removes every app and folder from the launcher. Your programs and files are not touched, and the old layout is kept in the backup folder",
+            "Remove…", "Are you sure?", "Yes, remove", () =>
             {
                 _vm.ClearAll();
                 _main.ApplyAll();

@@ -818,7 +818,7 @@ public partial class SpringboardView : UserControl
         Item("Settings", () => OpenSettings?.Invoke(), "Ctrl+,", ""),
         new Separator(),
         Item("Hide launcher", () => OverlayShouldHide?.Invoke(), "Esc", ""),
-        Danger(Item("Quit WinLaunch", Quit, null, "")),
+        Danger(Item("Quit WinLaunch Enhanced", Quit, null, "")),
     };
 
     private List<object> FolderMenuItems(ItemViewModel folder) => new()
@@ -912,7 +912,7 @@ public partial class SpringboardView : UserControl
 
     private void Quit()
     {
-        ShowNotice("Quit WinLaunch?", "The shortcut stops working until you start WinLaunch again.",
+        ShowNotice("Quit WinLaunch Enhanced?", "The shortcut stops working until you start WinLaunch again.",
             "Quit", () => QuitRequested?.Invoke());
     }
 
