@@ -23,7 +23,8 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="Button">
-          <Border x:Name="Plate" Background="{TemplateBinding Background}"
+          <!-- Inset so neighbouring plates (and the 1.06 hover lift) never touch. -->
+          <Border x:Name="Plate" Background="{TemplateBinding Background}" Margin="8"
                   CornerRadius="22" Padding="{TemplateBinding Padding}">
             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>

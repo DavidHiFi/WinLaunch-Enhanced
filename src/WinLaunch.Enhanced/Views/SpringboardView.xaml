@@ -70,7 +70,7 @@
               ToolTipService.InitialShowDelay="900"
               PreviewMouseLeftButtonDown="Tile_PreviewMouseDown"
               PreviewMouseLeftButtonUp="Tile_PreviewMouseUp"
-              MouseMove="Tile_MouseMove" DragOver="Tile_DragOver" Drop="Tile_Drop" AllowDrop="True"
+              MouseMove="Tile_MouseMove" MouseEnter="Tile_MouseEnter" DragOver="Tile_DragOver" Drop="Tile_Drop" AllowDrop="True"
               ContextMenuOpening="Tile_ContextMenuOpening">
         <Button.ContextMenu>
           <ContextMenu/>
@@ -112,7 +112,7 @@
               ToolTipService.InitialShowDelay="900"
               PreviewMouseLeftButtonDown="Tile_PreviewMouseDown"
               PreviewMouseLeftButtonUp="Tile_PreviewMouseUp"
-              MouseMove="Tile_MouseMove" DragOver="Tile_DragOver" Drop="Tile_Drop" AllowDrop="True"
+              MouseMove="Tile_MouseMove" MouseEnter="Tile_MouseEnter" DragOver="Tile_DragOver" Drop="Tile_Drop" AllowDrop="True"
               ContextMenuOpening="Tile_ContextMenuOpening">
         <Button.ContextMenu>
           <ContextMenu/>

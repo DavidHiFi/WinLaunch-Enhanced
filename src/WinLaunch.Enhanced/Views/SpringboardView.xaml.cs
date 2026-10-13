@@ -352,9 +352,16 @@ public partial class SpringboardView : UserControl
             FolderScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.9, 1, dur) { EasingFunction = ease });
             FolderLayer.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)));
         }
+        // Keyboard users land on the first app; a mouse open leaves no tile
+        // focused, so the only plate is the one under the pointer.
+        bool viaKeyboard = InputManager.Current.MostRecentInputDevice is KeyboardDevice;
         Dispatcher.BeginInvoke(new Action(() =>
-            FolderGrid.MoveFocus(new TraversalRequest(FocusNavigationDirection.First))),
-            DispatcherPriority.Input);
+        {
+            if (viaKeyboard)
+                FolderGrid.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
+            else
+                Focus();
+        }), DispatcherPriority.Input);
     }
 
     private void SizeFolderGrid(ItemViewModel folder)
@@ -1335,6 +1342,15 @@ public partial class SpringboardView : UserControl
     private void Tile_PreviewMouseUp(object sender, MouseButtonEventArgs e)
     {
         _holdTimer.Stop();
+    }
+
+    // Focus follows the pointer between tiles, so a keyboard-focused tile never
+    // keeps a second plate next to the hovered one. The search box keeps focus.
+    private void Tile_MouseEnter(object sender, MouseEventArgs e)
+    {
+        if (sender is Button b && !AnyDialogOpen && Keyboard.FocusedElement is Button f &&
+            f != b && f.Tag is ItemViewModel)
+            b.Focus();
     }
 
     private void Tile_MouseMove(object sender, MouseEventArgs e)
