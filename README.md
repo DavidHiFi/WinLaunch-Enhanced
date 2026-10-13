@@ -114,9 +114,10 @@ dotnet run --project src/WinLaunch.Enhanced -- "<dataset-copy>" --smoke
 # Re-renders the screenshots in docs/.
 dotnet run --project tools/PreviewRender
 
-# Moves the real mouse through seven drags on a copy of your data (into a
-# folder, app onto app, empty spot, hold then drag, out of a folder, reorder
-# inside a folder, edge paging). Your cursor moves on its own for a few seconds.
+# Moves the real mouse through the drags on a copy of your data (into a folder,
+# press and drag at once, live reflow, app onto app, empty spot, hold then drag,
+# out of a folder, reorder inside a folder, edge paging). Your cursor moves on
+# its own for a few seconds.
 dotnet run --project tools/PreviewRender -- --data "%APPDATA%\WinLaunch" --drag-test
 
 # Opens the real launcher full screen on a copy of your data and prints frame

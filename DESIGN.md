@@ -94,6 +94,9 @@ scale, and a label shadow toggle; all three apply live through the `UiFont`,
 - Folder open: sheet expands 180ms ease-out. Purpose: show containment.
 - Edit (wiggle) mode: ±1.2deg rotation on tiles, user-triggered only, stops on Esc/done.
   Purpose: signal rearrangement is armed. No endless pulses anywhere.
+- Drag: a press that moves 8 px lifts the tile at once (grows to 1.2, fades to 0.7, 140ms
+  ease-out). The other tiles glide 170ms to the cells the drop would take, and the lifted
+  tile stops wiggling. Purpose: show where the tile will land before the release.
 
 ## Resilience (R-27)
 

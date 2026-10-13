@@ -15,6 +15,8 @@ internal static class DragTest
 {
     [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+    [DllImport("user32.dll")] private static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+    private const byte VkEscape = 0x1B;
     private const uint LeftDown = 0x02, LeftUp = 0x04;
 
     private static Dispatcher D;
@@ -76,7 +78,22 @@ internal static class DragTest
         Check("app to an empty spot", afterIdx == vm.CurrentPageItems.Count - 1 && afterIdx != beforeIdx,
             $"position {beforeIdx} -> {afterIdx} of {vm.CurrentPageItems.Count}");
 
-        // 4. Edit mode off: press and hold a tile, then drag it onto a folder.
+        // 4. Edit mode off: press and drag at once, no hold needed.
+        view.SetEditMode(false);
+        Program.Pump(D, 300);
+        var quick = App(0);
+        var f1 = vm.CurrentPageItems.Last(i => i.IsFolder);
+        Drag(view, quick, f1, hold: false);
+        Check("drag without hold", f1.Children.Any(k => k.Model == quick.Model) && !vm.EditMode,
+            $"edit mode {vm.EditMode}, {f1.Name} has {f1.Children.Count}");
+
+        // 4b. Live reflow: tiles glide out of the way before the release, and the drop lands where they showed.
+        view.SetEditMode(true);
+        Program.Pump(D, 300);
+        LiveReflow(view, win, vm);
+        EscapeCancels(view, win, vm);
+
+        // 5. Edit mode off: press and hold a tile, then drag it onto a folder.
         view.SetEditMode(false);
         Program.Pump(D, 300);
         var e = App(0);
@@ -135,6 +152,81 @@ internal static class DragTest
         win.Close();
         Console.WriteLine(Fails == 0 ? "DRAG ALL PASS" : $"DRAG FAILURES: {Fails}");
         return Fails == 0 ? 0 : 1;
+    }
+
+    private static void LiveReflow(SpringboardView view, Window win, MainViewModel vm)
+    {
+        var grid = (ItemsControl)view.FindName("TileGrid");
+        var layer = (Canvas)view.FindName("DragLayer");
+        var src = vm.CurrentPageItems.FirstOrDefault(i => !i.IsFolder && vm.CurrentPageItems.IndexOf(i) != 2);
+        if (src == null || vm.CurrentPageItems.Count < 3)
+        {
+            Check("live reflow", false, "page too small to test");
+            return;
+        }
+        double cw = (double)view.Resources["TileCellWidth"], ch = (double)view.Resources["TileCellHeight"];
+        var from = Center(FindButton(view, src));
+        var to = grid.PointToScreen(new Point(2 * cw + 10, ch / 2));
+        Press(from, hold: false);
+        MoveTo(from, to);
+        Program.Pump(D, 400);
+        int glided = Glided(grid);
+        int lifted = layer.Children.Count;
+        Check("live reflow", glided > 0 && lifted == 1, $"{glided} tiles glided, {lifted} lifted");
+        SaveGhost(layer, Path.Combine(Path.GetTempPath(), "wl-ghost.png"));
+        Snap(win, Path.Combine(Path.GetTempPath(), "wl-reflow-mid.png"));
+        Release();
+        Program.Pump(D, 500);
+        int at = vm.CurrentPageItems.IndexOf(src);
+        Check("drop lands on the previewed cell", at == 2, $"index {at}");
+        Check("offsets cleared after the drop", Glided(grid) == 0, $"{Glided(grid)} still offset");
+    }
+
+    private static void EscapeCancels(SpringboardView view, Window win, MainViewModel vm)
+    {
+        var grid = (ItemsControl)view.FindName("TileGrid");
+        var layer = (Canvas)view.FindName("DragLayer");
+        var src = vm.CurrentPageItems.FirstOrDefault(i => !i.IsFolder);
+        if (src == null)
+        {
+            Check("escape cancels a drag", false, "no app on the page");
+            return;
+        }
+        int before = vm.CurrentPageItems.IndexOf(src);
+        double cw = (double)view.Resources["TileCellWidth"], ch = (double)view.Resources["TileCellHeight"];
+        var from = Center(FindButton(view, src));
+        var to = grid.PointToScreen(new Point(5 * cw + 10, ch / 2));
+        Press(from, hold: false);
+        MoveTo(from, to);
+        Program.Pump(D, 300);
+        keybd_event(VkEscape, 0, 0, UIntPtr.Zero);
+        keybd_event(VkEscape, 0, 2, UIntPtr.Zero);
+        Program.Pump(D, 400);
+        Release();
+        Program.Pump(D, 400);
+        int after = vm.CurrentPageItems.IndexOf(src);
+        Check("escape cancels a drag", after == before && layer.Children.Count == 0 && Glided(grid) == 0,
+            $"index {before} -> {after}, lifted {layer.Children.Count}, offset {Glided(grid)}");
+    }
+
+    private static int Glided(ItemsControl grid)
+    {
+        int n = 0;
+        for (int i = 0; i < grid.Items.Count; i++)
+            if (grid.ItemContainerGenerator.ContainerFromIndex(i) is FrameworkElement c &&
+                c.RenderTransform is TranslateTransform t && (t.X != 0 || t.Y != 0))
+                n++;
+        return n;
+    }
+
+    private static void SaveGhost(Canvas layer, string path)
+    {
+        if (layer.Children.Count == 0 || layer.Children[0] is not System.Windows.Controls.Image img)
+            return;
+        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create((System.Windows.Media.Imaging.BitmapSource)img.Source));
+        using var fs = File.Create(path);
+        enc.Save(fs);
     }
 
     private static void Snap(Window win, string path)
