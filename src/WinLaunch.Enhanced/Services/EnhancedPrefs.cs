@@ -18,8 +18,6 @@ public sealed class EnhancedPrefs
     public bool HideOnEmptyClick { get; set; } = true;
     public bool RankByUse { get; set; } = true;
     public bool Calculator { get; set; } = true;
-    public bool WebSearch { get; set; } = true;
-    public string WebSearchUrl { get; set; } = "https://www.google.com/search?q={0}";
     public bool OpenAnimation { get; set; } = true;
     public Dictionary<string, int> LaunchCounts { get; set; } = new();
 

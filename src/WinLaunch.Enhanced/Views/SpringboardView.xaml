@@ -9,6 +9,8 @@
 
     <!-- Sizes are recomputed from the screen, the grid and the user's icon
          size whenever the page area resizes (see UpdateTileMetrics). -->
+    <sys:Int32 x:Key="PageColumns">10</sys:Int32>
+    <sys:Int32 x:Key="PageRows">5</sys:Int32>
     <sys:Double x:Key="TileCellWidth">180</sys:Double>
     <sys:Double x:Key="TileCellHeight">180</sys:Double>
     <sys:Double x:Key="TileIconSize">104</sys:Double>
@@ -56,8 +58,7 @@
       <Setter Property="MaxWidth" Value="{DynamicResource TileLabelWidth}"/>
       <Setter Property="TextAlignment" Value="Center"/>
       <Setter Property="HorizontalAlignment" Value="Center"/>
-      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
-      <Setter Property="TextWrapping" Value="NoWrap"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
       <Setter Property="Margin" Value="0,9,0,0"/>
       <Setter Property="Effect" Value="{DynamicResource LabelEffect}"/>
     </Style>
@@ -171,7 +172,7 @@
         FolderTemplate="{StaticResource FolderTileTemplate}"/>
   </UserControl.Resources>
 
-  <Grid x:Name="Root" Background="Transparent"
+  <Grid x:Name="Root" Background="#01000000"
         PreviewMouseLeftButtonDown="Root_PreviewMouseDown"
         PreviewMouseLeftButtonUp="Root_PreviewMouseUp"
         MouseLeftButtonUp="Root_MouseLeftButtonUp"
@@ -205,7 +206,7 @@
                      FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
                      Foreground="{DynamicResource LabelBrush}" Opacity="0.7"
                      VerticalAlignment="Center" Margin="14,1,0,0" IsHitTestVisible="False"/>
-          <TextBox x:Name="SearchBox" Style="{DynamicResource SearchPill}" Margin="36,0,16,0"
+          <TextBox x:Name="SearchBox" Style="{DynamicResource SearchPill}" Margin="36,0,36,0"
                    TextChanged="SearchBox_TextChanged"
                    GotKeyboardFocus="SearchBox_FocusChanged" LostKeyboardFocus="SearchBox_FocusChanged"/>
         </Grid>
@@ -239,7 +240,7 @@
         </ItemsControl.RenderTransform>
         <ItemsControl.ItemsPanel>
           <ItemsPanelTemplate>
-            <UniformGrid Columns="10"/>
+            <UniformGrid Columns="{DynamicResource PageColumns}" Rows="{DynamicResource PageRows}"/>
           </ItemsPanelTemplate>
         </ItemsControl.ItemsPanel>
       </ItemsControl>
@@ -252,15 +253,8 @@
                   Visibility="Collapsed">
         <TextBlock Text="No apps match" FontSize="22" TextAlignment="Center" Opacity="0.75"
                    Foreground="{DynamicResource LabelBrush}"/>
-        <Button x:Name="WebSearchButton" Style="{DynamicResource GlassPillButton}" Margin="0,18,0,0"
-                HorizontalAlignment="Center" Click="WebSearch_Click">
-          <StackPanel Orientation="Horizontal">
-            <TextBlock Text="&#xE774;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
-                       VerticalAlignment="Center" Margin="0,0,10,0"/>
-            <TextBlock x:Name="WebSearchText" VerticalAlignment="Center"/>
-            <TextBlock Text="Enter" FontSize="11" Opacity="0.6" VerticalAlignment="Center" Margin="14,0,0,0"/>
-          </StackPanel>
-        </Button>
+        <TextBlock Text="Esc clears the search" FontSize="13" TextAlignment="Center" Opacity="0.55"
+                   Margin="0,10,0,0" Foreground="{DynamicResource LabelBrush}"/>
       </StackPanel>
 
       <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -292,6 +286,9 @@
 
     <!-- Page dots and the undo toast share the bottom strip. -->
     <Grid Grid.Row="2" Margin="0,8,0,28" MinHeight="40">
+      <Button x:Name="AddButton" Content="&#xE710;" Style="{DynamicResource GlassIconButton}"
+              ToolTip="Add an icon or folder" HorizontalAlignment="Left" VerticalAlignment="Center"
+              Margin="28,0,0,0" Click="AddButton_Click"/>
       <StackPanel x:Name="PageDots" Orientation="Horizontal" HorizontalAlignment="Center"
                   VerticalAlignment="Center"/>
       <Border x:Name="UndoToast" Visibility="Collapsed" HorizontalAlignment="Center"

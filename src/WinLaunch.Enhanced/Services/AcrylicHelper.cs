@@ -4,22 +4,16 @@ using System.Windows.Interop;
 
 namespace WinLaunch.Enhanced.Services;
 
-// Window composition: DWM system backdrop first (Solid/Acrylic/Mica, like the
-// other house apps), legacy acrylic accent as fallback, forced recomposite
-// after every change. Re-applied on every show because the live accent dies
-// on window recreate; the theme scrim stays readable on its own if all else
-// fails, so text never depends on blur.
+// Live blur behind the launcher, done the way the original WinLaunch does it:
+// a per-pixel transparent (layered) window plus the window-composition accent
+// policy. The newer DWMWA_SYSTEMBACKDROP_TYPE reports success on a borderless
+// fullscreen window but paints nothing there, so it is not used.
 public static class AcrylicHelper
 {
     private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
-    private const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
-    private const int DWMSBT_NONE = 1;
-    private const int DWMSBT_MICA = 2;
-    private const int DWMSBT_ACRYLIC = 3;
+    private const int WCA_ACCENT_POLICY = 19;
 
-    private const uint SWP_FLAGS = 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020; // NOSIZE|NOMOVE|NOZORDER|NOACTIVATE|FRAMECHANGED
-
-    private enum AccentState { Disabled = 0, EnableAcrylicBlurBehind = 4 }
+    private enum AccentState { Disabled = 0, EnableBlurBehind = 3, EnableAcrylicBlurBehind = 4 }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct AccentPolicy
@@ -38,119 +32,50 @@ public static class AcrylicHelper
         public int SizeOfData;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct Margins { public int Left, Right, Top, Bottom; }
-
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref Margins margins);
-
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
     [DllImport("user32.dll")]
     private static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
 
-    [DllImport("user32.dll")]
-    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
-        int x, int y, int cx, int cy, uint uFlags);
-
-    public static void ApplyComposition(Window window, string backdrop, bool dark, uint tintArgb = 0xC01E1E2E)
+    // backdrop: "Blur" (classic blur behind), "Acrylic" (blur plus grain and
+    // saturation), anything else turns the accent off.
+    public static bool Apply(Window window, string backdrop, bool dark)
     {
-        try
-        {
-            var handle = new WindowInteropHelper(window).Handle;
-            if (handle == IntPtr.Zero)
-                return;
-            // DWM paints Acrylic/Mica behind the client area only when WPF
-            // clears to transparent and the frame covers the whole window;
-            // otherwise the opaque WPF surface hides the blur completely.
-            bool glass = backdrop != "Solid";
-            var source = HwndSource.FromHwnd(handle);
-            if (source?.CompositionTarget != null)
-                source.CompositionTarget.BackgroundColor = glass
-                    ? System.Windows.Media.Colors.Transparent
-                    : System.Windows.Media.Colors.Black;
-            var margins = glass ? new Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 } : new Margins();
-            try { DwmExtendFrameIntoClientArea(handle, ref margins); }
-            catch { }
-            int darkMode = dark ? 1 : 0;
-            try { DwmSetWindowAttribute(handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int)); }
-            catch { }
-            bool backdropSet = false;
-            if (backdrop != "Solid")
-            {
-                int type = backdrop == "Mica" ? DWMSBT_MICA : DWMSBT_ACRYLIC;
-                try { backdropSet = DwmSetWindowAttribute(handle, DWMWA_SYSTEMBACKDROP_TYPE, ref type, sizeof(int)) == 0; }
-                catch { }
-            }
-            else
-            {
-                try
-                {
-                    int none = DWMSBT_NONE;
-                    DwmSetWindowAttribute(handle, DWMWA_SYSTEMBACKDROP_TYPE, ref none, sizeof(int));
-                }
-                catch { }
-            }
-            if (backdrop != "Solid" && !backdropSet)
-                EnableAcrylic(handle, tintArgb);
-            ForceRecomposite(handle);
-        }
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero)
+            return false;
+        int darkMode = dark ? 1 : 0;
+        try { DwmSetWindowAttribute(handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int)); }
         catch { }
-    }
-
-    public static bool EnableAcrylic(Window window, uint tintArgb = 0xC01E1E2E)
-    {
+        var state = backdrop switch
+        {
+            "Blur" => AccentState.EnableBlurBehind,
+            "Acrylic" => AccentState.EnableAcrylicBlurBehind,
+            _ => AccentState.Disabled,
+        };
+        // Acrylic needs a nonzero gradient alpha or Windows skips the effect;
+        // 0x01 leaves the tint to the window's own scrim, as the original does.
+        var accent = new AccentPolicy
+        {
+            AccentState = state,
+            GradientColor = state == AccentState.EnableAcrylicBlurBehind ? 0x01FFFFFFu : 0u,
+        };
+        int size = Marshal.SizeOf<AccentPolicy>();
+        var ptr = Marshal.AllocHGlobal(size);
         try
         {
-            var handle = new WindowInteropHelper(window).Handle;
-            if (handle == IntPtr.Zero)
-                return false;
-            return EnableAcrylic(handle, tintArgb);
+            Marshal.StructureToPtr(accent, ptr, false);
+            var data = new WindowCompositionAttributeData { Attribute = WCA_ACCENT_POLICY, Data = ptr, SizeOfData = size };
+            return SetWindowCompositionAttribute(handle, ref data) != 0;
         }
         catch
         {
             return false;
         }
-    }
-
-    private static bool EnableAcrylic(IntPtr handle, uint tintArgb)
-    {
-        try
+        finally
         {
-            var accent = new AccentPolicy
-            {
-                AccentState = AccentState.EnableAcrylicBlurBehind,
-                AccentFlags = 0,
-                GradientColor = tintArgb,
-                AnimationId = 0,
-            };
-            var ptr = Marshal.AllocHGlobal(Marshal.SizeOf(accent));
-            try
-            {
-                Marshal.StructureToPtr(accent, ptr, false);
-                var data = new WindowCompositionAttributeData
-                {
-                    Attribute = 19, // WCA_ACCENT_POLICY
-                    Data = ptr,
-                    SizeOfData = Marshal.SizeOf(accent),
-                };
-                return SetWindowCompositionAttribute(handle, ref data) != 0;
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(ptr);
-            }
+            Marshal.FreeHGlobal(ptr);
         }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static void ForceRecomposite(IntPtr handle)
-    {
-        try { SetWindowPos(handle, IntPtr.Zero, 0, 0, 0, 0, SWP_FLAGS); }
-        catch { }
     }
 }

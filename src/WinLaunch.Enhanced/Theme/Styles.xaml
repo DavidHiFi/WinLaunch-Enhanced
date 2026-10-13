@@ -76,6 +76,7 @@
     <Setter Property="BorderThickness" Value="0"/>
     <Setter Property="FontSize" Value="14"/>
     <Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="TextAlignment" Value="Center"/>
     <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     <Setter Property="Template">
       <Setter.Value>
@@ -84,6 +85,13 @@
         </ControlTemplate>
       </Setter.Value>
     </Setter>
+    <!-- Launchpad style: the centered hint stands in for the caret until the
+         first key, so no caret blinks off to one side of it. -->
+    <Style.Triggers>
+      <Trigger Property="Text" Value="">
+        <Setter Property="CaretBrush" Value="Transparent"/>
+      </Trigger>
+    </Style.Triggers>
   </Style>
 
   <!-- Round glass icon button (settings gear). -->

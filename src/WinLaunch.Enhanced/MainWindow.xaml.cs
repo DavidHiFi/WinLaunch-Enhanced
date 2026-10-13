@@ -190,23 +190,33 @@ public partial class MainWindow : Window
             return; // theme applied before InitializeComponent
         var mode = ThemeManager.CurrentBackdrop;
         var wall = mode == "Wallpaper" ? WallpaperBackdrop.GetBlurred(null, _vm.Prefs.Blur) : null;
-        if (wall != null)
-        {
-            AcrylicHelper.ApplyComposition(this, "Solid", ThemeManager.IsDark());
-            SetResourceReference(BackgroundProperty, "SolidBgBrush");
-            BackdropImage.Source = wall;
-            BackdropImage.Visibility = Visibility.Visible;
-            BackdropScrim.Opacity = Math.Clamp(_vm.Prefs.Dim, 0, 0.9);
-            BackdropScrim.Visibility = Visibility.Visible;
-            return;
-        }
-        BackdropImage.Visibility = Visibility.Collapsed;
-        BackdropScrim.Visibility = Visibility.Collapsed;
-        AcrylicHelper.ApplyComposition(this, mode == "Wallpaper" ? "Solid" : mode, ThemeManager.IsDark());
-        if (mode == "Solid" || mode == "Wallpaper")
-            SetResourceReference(BackgroundProperty, "SolidBgBrush");
+        bool live = mode is "Blur" or "Acrylic";
+        // Live blur needs a see-through window, but fully transparent pixels are
+        // click-through on Windows. HitTestable is alpha 1: invisible to the eye,
+        // yet right-clicks, wheel turns and empty-space clicks still reach the board.
+        if (live)
+            Background = HitTestable;
         else
-            ThemeManager.ApplyScrim(this, _compat);
+            SetResourceReference(BackgroundProperty, "SolidBgBrush");
+        AcrylicHelper.Apply(this, live ? mode : "Solid", ThemeManager.IsDark());
+        BackdropImage.Source = wall;
+        BackdropImage.Visibility = wall != null ? Visibility.Visible : Visibility.Collapsed;
+        // Dim tints whatever sits behind the labels: the wallpaper or the blur.
+        bool tinted = wall != null || live;
+        BackdropScrim.Opacity = Math.Clamp(_vm.Prefs.Dim, 0, 0.9);
+        BackdropScrim.Visibility = tinted ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // Set when a backup is being imported: the restart must not write the old state back over it.
+    public static bool SkipSaveOnClose;
+
+    private static readonly SolidColorBrush HitTestable = CreateHitTestable();
+
+    private static SolidColorBrush CreateHitTestable()
+    {
+        var brush = new SolidColorBrush(System.Windows.Media.Color.FromArgb(1, 0, 0, 0));
+        brush.Freeze();
+        return brush;
     }
 
     public void ReapplyComposition() => ApplyComposition();
@@ -346,8 +356,9 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        App.Trace("main window closed");
         _cornerTimer.Stop();
-        try { _vm.SaveNow(); } catch { }
+        try { if (!SkipSaveOnClose) _vm.SaveNow(); } catch { }
         _hotkey.Dispose();
         if (_tray != null)
         {

@@ -21,6 +21,8 @@ using WpfOpenFileDialog = Microsoft.Win32.OpenFileDialog;
 using Key = System.Windows.Input.Key;
 using MenuItem = System.Windows.Controls.MenuItem;
 using ContextMenu = System.Windows.Controls.ContextMenu;
+using Panel = System.Windows.Controls.Panel;
+using TextBox = System.Windows.Controls.TextBox;
 using Point = System.Windows.Point;
 
 namespace WinLaunch.Enhanced.Views;
@@ -105,12 +107,9 @@ public partial class SpringboardView : UserControl
         if (VM == null)
             return;
         var s = VM.Settings;
-        var pageGrid = FindPanel<UniformGrid>(TileGrid);
-        if (pageGrid != null)
-        {
-            pageGrid.Columns = Math.Max(1, s.Columns);
-            pageGrid.Rows = Math.Max(1, s.Rows);
-        }
+        // The page grid binds to these, so it follows the settings even before it is created.
+        Resources["PageColumns"] = Math.Max(1, s.Columns);
+        Resources["PageRows"] = Math.Max(1, s.Rows);
         SearchPill.Visibility = s.SearchBarVisible ? Visibility.Visible : Visibility.Hidden;
         Resources["ItemLabelVisibility"] = s.ShowItemIconText ? Visibility.Visible : Visibility.Collapsed;
         Resources["FolderLabelVisibility"] = s.ShowFolderIconText ? Visibility.Visible : Visibility.Collapsed;
@@ -265,7 +264,7 @@ public partial class SpringboardView : UserControl
     // in edit mode it ends editing instead.
     private void Root_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (_swiping || !ReferenceEquals(e.OriginalSource, Root))
+        if (_swiping || !IsEmptySurface(e.OriginalSource))
         {
             _swiping = false;
             return;
@@ -416,8 +415,6 @@ public partial class SpringboardView : UserControl
         var calc = VM.Prefs.Calculator ? Calculator.TryEvaluate(SearchBox.Text) : null;
         CalcText.Text = calc ?? "";
         CalcChip.Visibility = calc != null ? Visibility.Visible : Visibility.Collapsed;
-        WebSearchText.Text = $"Search the web for \u201C{SearchBox.Text.Trim()}\u201D";
-        WebSearchButton.Visibility = VM.Prefs.WebSearch ? Visibility.Visible : Visibility.Collapsed;
         Refresh();
     }
 
@@ -428,22 +425,6 @@ public partial class SpringboardView : UserControl
         try { System.Windows.Clipboard.SetText(CalcText.Text); } catch { }
         if (VM.Prefs.CloseOnLaunch)
             OverlayShouldHide?.Invoke();
-    }
-
-    private void WebSearch_Click(object sender, RoutedEventArgs e) => WebSearch();
-
-    private void WebSearch()
-    {
-        var q = SearchBox.Text.Trim();
-        if (q.Length == 0)
-            return;
-        try
-        {
-            var url = string.Format(VM.Prefs.WebSearchUrl, Uri.EscapeDataString(q));
-            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-            OverlayShouldHide?.Invoke();
-        }
-        catch { }
     }
 
     private void SearchBox_FocusChanged(object sender, KeyboardFocusChangedEventArgs e) => UpdateSearchChrome();
@@ -492,13 +473,6 @@ public partial class SpringboardView : UserControl
         if (e.Key == Key.Enter && inSearch && CalcChip.Visibility == Visibility.Visible)
         {
             CopyCalc();
-            e.Handled = true;
-            return;
-        }
-        if (e.Key == Key.Enter && inSearch && SearchBox.Text.Trim().Length > 0 &&
-            VM.SearchResults.Count == 0 && VM.Prefs.WebSearch)
-        {
-            WebSearch();
             e.Handled = true;
             return;
         }
@@ -634,9 +608,17 @@ public partial class SpringboardView : UserControl
         menu.IsOpen = true;
     }
 
+    private void AddButton_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = BuildBoardMenu();
+        menu.PlacementTarget = AddButton;
+        menu.Placement = PlacementMode.Top;
+        menu.IsOpen = true;
+    }
+
     private void Root_ContextMenuOpening(object sender, ContextMenuEventArgs e)
     {
-        if (!ReferenceEquals(e.OriginalSource, Root) && e.OriginalSource is not UniformGrid)
+        if (!IsEmptySurface(e.OriginalSource))
         {
             e.Handled = true;
             return;
@@ -644,11 +626,29 @@ public partial class SpringboardView : UserControl
         Root.ContextMenu = BuildBoardMenu();
     }
 
+    // Empty space is the board's own panels. Tiles, buttons, the search pill and
+    // text fields handle their own clicks and menus.
+    private bool IsEmptySurface(object source)
+    {
+        if (source is not DependencyObject d || FolderLayer.Visibility == Visibility.Visible ||
+            PromptLayer.Visibility == Visibility.Visible)
+            return false;
+        return (d is Panel || d is ItemsControl) && !IsInside<Button>(d) && !IsInside<TextBox>(d) && !IsInside<Border>(d);
+    }
+
+    private bool IsInside<T>(DependencyObject d) where T : DependencyObject
+    {
+        for (var cur = d; cur != null && cur != this; cur = VisualTreeHelper.GetParent(cur))
+            if (cur is T)
+                return true;
+        return false;
+    }
+
     public ContextMenu BuildBoardMenu()
     {
         var menu = new ContextMenu();
-        menu.Items.Add(Item("Add apps…", () => Add_Click(null, null), null, "\uE710"));
-        menu.Items.Add(Item("New folder", NewFolder, "Ctrl+N", "\uE8F4"));
+        menu.Items.Add(Item("Add icon…", () => Add_Click(null, null), null, "\uE710"));
+        menu.Items.Add(Item("Add folder", NewFolder, "Ctrl+N", "\uE8F4"));
         menu.Items.Add(Item(VM.EditMode ? "Done editing" : "Edit layout", () => SetEditMode(!VM.EditMode), "Ctrl+E",
             VM.EditMode ? "\uE73E" : "\uE70F"));
         menu.Items.Add(new Separator());

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -18,6 +19,8 @@ using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using Orientation = System.Windows.Controls.Orientation;
 using RadioButton = System.Windows.Controls.RadioButton;
 using Brushes = System.Windows.Media.Brushes;
+using MessageBox = System.Windows.MessageBox;
+using TextBox = System.Windows.Controls.TextBox;
 
 namespace WinLaunch.Enhanced;
 
@@ -42,7 +45,7 @@ public partial class SettingsWindow : Window
         ("general", "", "General", "How the launcher opens and closes"),
         ("appearance", "", "Appearance", "Theme, background and text"),
         ("layout", "", "Layout", "Grid, icons and sorting"),
-        ("search", "", "Search", "Ranking, calculator and web search"),
+        ("search", "", "Search", "Ranking, calculator and usage history"),
         ("shortcut", "", "Shortcuts", "Keyboard shortcut and hot corners"),
         ("about", "", "About", "Version, data and backups"),
     };
@@ -98,6 +101,8 @@ public partial class SettingsWindow : Window
             _reloadPending = false;
             _vm.Reload();
         }
+        if (_vm.EnforceCapacity())
+            _vm.RequestSave();
         _main.ApplyAll();
     }
 
@@ -125,7 +130,7 @@ public partial class SettingsWindow : Window
             RecordKey(e);
             return;
         }
-        if (e.Key == Key.Escape)
+        if (e.Key == Key.Escape && Keyboard.FocusedElement is not TextBox)
         {
             Close();
             e.Handled = true;
@@ -187,13 +192,13 @@ public partial class SettingsWindow : Window
 
         card = Section("Background");
         var modes = ThemeManager.Backdrops;
-        Choice(card, "Style", "Wallpaper is the original WinLaunch look",
+        Choice(card, "Style", "Wallpaper and Blur are the original WinLaunch looks",
             modes, Array.IndexOf(modes, ThemeManager.CurrentBackdrop),
             i => { ThemeManager.SaveBackdrop(_vm.Store, modes[i]); Changed(); });
-        Slider(card, "Dim", "How much the wallpaper is darkened under the icons", 0, 0.8, p.Dim,
-            v => $"{v * 100:0}%", v => { p.Dim = v; Changed(); }, 0.02);
+        Slider(card, "Dim", "Theme tint over the wallpaper or blur, for readable labels", 0, 0.8, p.Dim,
+            100, "%", 0, 0.01, v => { p.Dim = Math.Round(v, 2); Changed(); });
         Slider(card, "Blur", "Softness of the wallpaper (Wallpaper style)", 0, 60, p.Blur,
-            v => $"{v:0}", v => { p.Blur = Math.Round(v); Changed(); }, 2);
+            1, "", 0, 1, v => { p.Blur = Math.Round(v); Changed(); });
 
         card = Section("Text");
         var fonts = ThemeManager.InstalledFonts();
@@ -211,7 +216,7 @@ public partial class SettingsWindow : Window
             reset: () => EnhancedPrefs.DefaultFont);
         card.Children.Add(preview);
         Slider(card, "Text size", "Scales app names, search and folder titles", 0.8, 1.4, p.TextScale,
-            v => $"{v * 100:0}%", v => { p.TextScale = v; Changed(); }, 0.05);
+            100, "%", 0, 0.01, v => { p.TextScale = Math.Round(v, 2); Changed(); });
         Toggle(card, "Text shadow", "Keeps names readable on bright wallpapers",
             p.LabelShadow, v => { p.LabelShadow = v; Changed(); });
         Toggle(card, "Show app names", null, _vm.Settings.ShowItemIconText,
@@ -224,14 +229,14 @@ public partial class SettingsWindow : Window
     {
         var s = _vm.Settings;
         var card = Section("Grid");
-        Slider(card, "Columns", "Apps per row", 4, 14, s.Columns, v => $"{v:0}",
-            v => { s.Columns = (int)Math.Round(v); Changed(); }, 1);
-        Slider(card, "Rows", "Rows per page", 2, 8, s.Rows, v => $"{v:0}",
-            v => { s.Rows = (int)Math.Round(v); Changed(); }, 1);
+        Slider(card, "Columns", "Apps per row", 4, 14, s.Columns, 1, "", 0, 1,
+            v => { s.Columns = (int)Math.Round(v); Changed(); });
+        Slider(card, "Rows", "Rows per page. A full page moves extra apps to the next page", 2, 8, s.Rows, 1, "", 0, 1,
+            v => { s.Rows = (int)Math.Round(v); Changed(); });
         Slider(card, "Icon size", "Shrinks automatically if the grid gets tight", 0.8, 2.2, s.IconSize,
-            v => $"{v * 100:0}%", v => { s.IconSize = Math.Round(v, 2); Changed(); }, 0.05);
-        Slider(card, "Folder columns", "Apps per row inside an open folder", 3, 12, s.FolderColumns, v => $"{v:0}",
-            v => { s.FolderColumns = (int)Math.Round(v); Changed(); }, 1);
+            100, "%", 0, 0.01, v => { s.IconSize = Math.Round(v, 2); Changed(); });
+        Slider(card, "Folder columns", "Apps per row inside an open folder", 3, 12, s.FolderColumns, 1, "", 0, 1,
+            v => { s.FolderColumns = (int)Math.Round(v); Changed(); });
         card = Section("Board");
         Toggle(card, "Search bar", null, s.SearchBarVisible, v => { s.SearchBarVisible = v; Changed(); });
         Toggle(card, "Page dots", "Shown when you have more than one page", s.PageIndicatorsVisible,
@@ -251,19 +256,6 @@ public partial class SettingsWindow : Window
             v => { p.RankByUse = v; Changed(); });
         Toggle(card, "Calculator", "Type 12*7 or (40+2)/3 and press Enter to copy the answer", p.Calculator,
             v => { p.Calculator = v; Changed(); });
-        card = Section("Web search");
-        Toggle(card, "Search the web when nothing matches", "Enter opens your browser with the query",
-            p.WebSearch, v => { p.WebSearch = v; Changed(); });
-        var engines = new[]
-        {
-            ("Google", "https://www.google.com/search?q={0}"),
-            ("DuckDuckGo", "https://duckduckgo.com/?q={0}"),
-            ("Bing", "https://www.bing.com/search?q={0}"),
-            ("Brave Search", "https://search.brave.com/search?q={0}"),
-        };
-        int current = Math.Max(0, Array.FindIndex(engines, e => e.Item2 == p.WebSearchUrl));
-        Choice(card, "Search engine", null, engines.Select(e => e.Item1).ToArray(), current,
-            i => { p.WebSearchUrl = engines[i].Item2; Changed(); });
         card = Section("Usage");
         int tracked = p.LaunchCounts.Count;
         ActionRow(card, "Reset usage history", $"{tracked} apps tracked, stored only on this PC", "Reset", () =>
@@ -308,8 +300,8 @@ public partial class SettingsWindow : Window
             s.HotTopLeft = i == 0; s.HotTopRight = i == 1; s.HotBottomLeft = i == 2; s.HotBottomRight = i == 3;
             Changed();
         });
-        Slider(card, "Delay", "How long the pointer rests in the corner first", 0, 1.5, s.HotCornerDelay,
-            v => v < 0.05 ? "Instant" : $"{v:0.0} s", v => { s.HotCornerDelay = Math.Round(v, 1); Changed(); }, 0.1);
+        Slider(card, "Delay", "How long the pointer rests in the corner first, 0.0 s is instant", 0, 1.5, s.HotCornerDelay,
+            1, " s", 1, 0.1, v => { s.HotCornerDelay = Math.Round(v, 1); Changed(); });
 
         card = Section("In the launcher");
         foreach (var (keys, what) in new[]
@@ -346,12 +338,23 @@ public partial class SettingsWindow : Window
             _vm.SaveNow();
             Toast("Backup saved");
         });
+        ActionRow(card, "Export backup…", "Saves your apps, folders, layout and look to one .WLbackup file", "Export…",
+            ExportBackup);
+        ActionRow(card, "Import backup…", "Replaces this setup with a .WLbackup file. Your current setup is saved first", "Import…",
+            ImportBackup);
         ActionRow(card, "Reload apps", "Re-reads your apps after editing files by hand", "Reload", () =>
         {
             _vm.Reload();
             _main.ApplyAll();
             Toast("Reloaded");
         });
+        ConfirmRow(card, "Clear all icons", "Removes every app and folder from the launcher. Your programs and files are not touched, and the old layout is kept in the backup folder",
+            "Clear…", "Are you sure?", "Yes, clear", () =>
+            {
+                _vm.ClearAll();
+                _main.ApplyAll();
+                Toast("Cleared. The previous layout is in the backup folder");
+            });
         card = Section("Project");
         ActionRow(card, "Source code and releases", "github.com/DavidHiFi/WinLaunch-Enhanced", "Open",
             () => Open("https://github.com/DavidHiFi/WinLaunch-Enhanced"));
@@ -606,31 +609,75 @@ public partial class SettingsWindow : Window
         card.Children.Add(cb);
     }
 
+    // Drag, use the arrow keys, or click the number and type one. Enter applies, Esc reverts.
+    // scale turns the stored value into the number shown, so 0.75 reads as 75 with suffix %.
+    // Values snap to step, so 1 % and 1 px are the smallest moves, never 2 %.
     private static void Slider(StackPanel card, string title, string hint, double min, double max, double value,
-        Func<double, string> format, Action<double> set, double step)
+        double scale, string suffix, int decimals, double step, Action<double> set)
     {
         var host = Row(card, title, hint);
         var panel = new StackPanel { Orientation = Orientation.Horizontal };
         var slider = new System.Windows.Controls.Slider
         {
             Minimum = min, Maximum = max, Value = Math.Clamp(value, min, max), Width = 220,
-            SmallChange = step, LargeChange = step, TickFrequency = step, IsSnapToTickEnabled = true,
-            VerticalAlignment = VerticalAlignment.Center,
+            SmallChange = step, LargeChange = step * 5, VerticalAlignment = VerticalAlignment.Center,
         };
         slider.SetResourceReference(StyleProperty, "FlatSlider");
-        var label = new TextBlock
+        string Format(double v) =>
+            (v * scale).ToString(decimals == 0 ? "0" : "0." + new string('0', decimals), CultureInfo.InvariantCulture) + suffix;
+        var box = new TextBox
         {
-            Text = format(slider.Value), Width = 58, TextAlignment = TextAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0),
+            Text = Format(slider.Value), Width = 74, TextAlignment = TextAlignment.Right, MaxLength = 8,
+            BorderThickness = new Thickness(0), Background = Brushes.Transparent,
+            Padding = new Thickness(6, 3, 8, 3), VerticalContentAlignment = VerticalAlignment.Center,
+            Cursor = System.Windows.Input.Cursors.IBeam,
         };
-        label.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+        box.SetResourceReference(TextBox.ForegroundProperty, "TextBrush");
+        box.SetResourceReference(TextBox.CaretBrushProperty, "TextBrush");
+        var field = new Border
+        {
+            CornerRadius = new CornerRadius(8), Margin = new Thickness(10, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center, Child = box,
+        };
+        field.SetResourceReference(Border.BackgroundProperty, "FieldBrush");
+        void Commit()
+        {
+            var text = box.Text.Trim().TrimEnd('%', 's', ' ').Replace(',', '.');
+            if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var typed))
+                slider.Value = Math.Clamp(typed / scale, min, max);
+            box.Text = Format(slider.Value);
+        }
+        box.GotKeyboardFocus += (_, _) => box.SelectAll();
+        box.LostKeyboardFocus += (_, _) => Commit();
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                Commit();
+                Keyboard.ClearFocus();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                box.Text = Format(slider.Value);
+                Keyboard.ClearFocus();
+                e.Handled = true;
+            }
+        };
         slider.ValueChanged += (_, e) =>
         {
-            label.Text = format(e.NewValue);
-            set(e.NewValue);
+            double v = Math.Round(e.NewValue / step, MidpointRounding.AwayFromZero) * step;
+            if (Math.Abs(v - e.NewValue) > 1e-9)
+            {
+                slider.Value = v;
+                return;
+            }
+            if (!box.IsKeyboardFocusWithin)
+                box.Text = Format(v);
+            set(v);
         };
         panel.Children.Add(slider);
-        panel.Children.Add(label);
+        panel.Children.Add(field);
         host.Content = panel;
     }
 
@@ -708,6 +755,111 @@ public partial class SettingsWindow : Window
             PageSubtitle.Text = page.Subtitle;
         };
         t.Start();
+    }
+
+    // A destructive action: the first click asks, the second one does it.
+    private static void ConfirmRow(StackPanel card, string title, string hint, string action, string question,
+        string confirm, Action run)
+    {
+        var host = Row(card, title, hint);
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        var ask = new Button { Content = action, MinWidth = 96 };
+        ask.SetResourceReference(StyleProperty, "SecondaryButton");
+        ask.SetResourceReference(ForegroundProperty, "WarnBrush");
+        var prompt = new TextBlock { Text = question, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+        var yes = new Button { Content = confirm, MinWidth = 120 };
+        yes.SetResourceReference(StyleProperty, "SecondaryButton");
+        yes.SetResourceReference(ForegroundProperty, "WarnBrush");
+        var no = new Button { Content = "Cancel", MinWidth = 88, Margin = new Thickness(8, 0, 0, 0) };
+        no.SetResourceReference(StyleProperty, "SecondaryButton");
+        prompt.Visibility = yes.Visibility = no.Visibility = Visibility.Collapsed;
+        panel.Children.Add(prompt);
+        panel.Children.Add(yes);
+        panel.Children.Add(no);
+        panel.Children.Add(ask);
+        host.Content = panel;
+        void Reset()
+        {
+            ask.Visibility = Visibility.Visible;
+            prompt.Visibility = yes.Visibility = no.Visibility = Visibility.Collapsed;
+        }
+        ask.Click += (_, _) =>
+        {
+            ask.Visibility = Visibility.Collapsed;
+            prompt.Visibility = yes.Visibility = no.Visibility = Visibility.Visible;
+        };
+        no.Click += (_, _) => Reset();
+        yes.Click += (_, _) =>
+        {
+            Reset();
+            run();
+        };
+    }
+
+    private void ExportBackup()
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Export WinLaunch backup",
+            Filter = $"WinLaunch backup (*{BackupService.Extension})|*{BackupService.Extension}",
+            FileName = $"WinLaunch-{DateTime.Now:yyyy-MM-dd}{BackupService.Extension}",
+            AddExtension = true,
+        };
+        if (dlg.ShowDialog(this) != true)
+            return;
+        try
+        {
+            _vm.SaveNow();
+            _vm.SaveSettings();
+            _vm.Prefs.Save();
+            BackupService.Export(_vm.Store.Directory, dlg.FileName);
+            Toast($"Exported {System.IO.Path.GetFileName(dlg.FileName)}");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Export failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void ImportBackup()
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Import WinLaunch backup",
+            Filter = $"WinLaunch backup (*{BackupService.Extension})|*{BackupService.Extension}",
+        };
+        if (dlg.ShowDialog(this) != true)
+            return;
+        var name = System.IO.Path.GetFileName(dlg.FileName);
+        if (MessageBox.Show(this,
+                $"Replace your apps, folders and settings with {name}?\n\nYour current setup is saved to the backup folder first. WinLaunch restarts afterwards.",
+                "Import backup", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+            return;
+        try
+        {
+            _applyTimer.Stop();
+            _reloadPending = false;
+            BackupService.Import(dlg.FileName, _vm.Store.Directory, _vm.Store.BackupDir);
+            MainWindow.SkipSaveOnClose = true;
+            RestartApp();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Import failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    // A fresh copy starts once this one has exited, which releases the single-instance lock.
+    private void RestartApp()
+    {
+        var exe = Environment.ProcessPath;
+        if (!string.IsNullOrEmpty(exe))
+            Process.Start(new ProcessStartInfo("cmd.exe", $"/c ping 127.0.0.1 -n 4 >nul & start \"\" \"{exe}\" --background")
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+            });
+        System.Windows.Application.Current.MainWindow?.Close();
     }
 
     private static void Open(string target)

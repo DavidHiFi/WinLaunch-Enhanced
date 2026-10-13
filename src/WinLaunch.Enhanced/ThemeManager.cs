@@ -16,7 +16,7 @@ public static class ThemeManager
 {
     public static string CurrentTheme { get; private set; } = Themes.Default;
     public static string CurrentBackdrop { get; private set; } = "Wallpaper";
-    public static readonly string[] Backdrops = { "Wallpaper", "Acrylic", "Mica", "Solid" };
+    public static readonly string[] Backdrops = { "Wallpaper", "Blur", "Acrylic", "Solid" };
 
     private static WpfColor _shadowColor = Colors.Black;
     private static bool _labelShadow = true;
@@ -110,7 +110,6 @@ public static class ThemeManager
         Put(r, "MutedColor", Themes.C(t.Sub));
         Put(r, "AccentColor", Themes.C(t.Accent));
         Put(r, "AccentInkColor", Themes.C(t.OnAccent));
-        r["ScrimBrush"] = new SolidColorBrush(Themes.C(t.Bg)) { Opacity = compat.ScrimOpacity };
         r["SolidBgBrush"] = new SolidColorBrush(Themes.C(t.Bg));
         r["CardBrush"] = new SolidColorBrush(Themes.C(t.Card));
         r["CardBorderBrush"] = new SolidColorBrush(Themes.C(t.CardBorder));
@@ -176,6 +175,8 @@ public static class ThemeManager
             if (File.Exists(path))
             {
                 var v = File.ReadAllText(path).Trim();
+                if (v == "Mica")
+                    v = "Blur"; // Mica cannot render behind a fullscreen overlay
                 if (Backdrops.Contains(v))
                     return v;
             }
@@ -197,18 +198,4 @@ public static class ThemeManager
 
     public static bool IsDark() =>
         Themes.All.TryGetValue(CurrentTheme, out var t) && t.Dark;
-
-    public static void ApplyScrim(Window window, ThemeCompat compat)
-    {
-        try
-        {
-            var brush = WpfApplication.Current.Resources["ScrimBrush"] as SolidColorBrush;
-            if (brush != null)
-            {
-                brush.Opacity = compat.ScrimOpacity;
-                window.Background = brush;
-            }
-        }
-        catch { }
-    }
 }

@@ -89,8 +89,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 vm.RefreshTarget();
                 TopItems.Add(vm);
             }
-            PageCount = Math.Max(1, TopItems.Any() ? TopItems.Max(i => i.Model.Page) + 1 : 1);
             Renumber();
+            EnforceCapacity();
             CurrentPage = 0;
             foreach (var vm in TopItems)
                 vm.LoadIcon();
@@ -164,19 +164,60 @@ public sealed class MainViewModel : INotifyPropertyChanged
         vm.Name.Contains(q, StringComparison.OrdinalIgnoreCase) ||
         (vm.Model.Keywords ?? "").Contains(q, StringComparison.OrdinalIgnoreCase);
 
-    // Adds a new model on a page, appending it after existing tiles.
-    // Stored indices of untouched items are never rewritten.
+    // A page holds Columns x Rows tiles. Adding to a full page lands on the next
+    // page with room, as the original did. Stored indices of untouched items are
+    // never rewritten.
+    public int PageCapacity => Math.Max(1, Settings.Columns * Settings.Rows);
+
+    private int CountOnPage(int page) => TopItems.Count(i => i.Model.Page == page);
+
+    private int NextGridIndex(int page) =>
+        TopItems.Where(i => i.Model.Page == page).Select(i => i.Model.GridIndex).DefaultIfEmpty(-1).Max() + 1;
+
     public ItemViewModel AddModel(ICItem model, int page)
     {
-        model.Page = page;
-        model.GridIndex = TopItems.Where(i => i.Model.Page == page)
-            .Select(i => i.Model.GridIndex).DefaultIfEmpty(-1).Max() + 1;
+        int target = page;
+        while (CountOnPage(target) >= PageCapacity)
+            target++;
+        model.Page = target;
+        model.GridIndex = NextGridIndex(target);
         var vm = new ItemViewModel(model, Store, IconCacheDir);
         vm.RefreshTarget();
         vm.LoadIcon();
         TopItems.Add(vm);
         RecountPages();
         return vm;
+    }
+
+    // Moves tiles that no longer fit after the grid shrank onto the pages after them.
+    public bool EnforceCapacity()
+    {
+        bool moved = false;
+        int cap = PageCapacity;
+        for (int page = 0; TopItems.Any() && page <= TopItems.Max(i => i.Model.Page); page++)
+        {
+            var onPage = TopItems.Where(i => i.Model.Page == page).OrderBy(i => i.Model.GridIndex).ToList();
+            foreach (var extra in onPage.Skip(cap))
+            {
+                extra.Model.Page = page + 1;
+                extra.Model.GridIndex = NextGridIndex(page + 1);
+                moved = true;
+            }
+        }
+        RecountPages();
+        return moved;
+    }
+
+    // Removes every tile. SaveItems keeps the previous file in ICBackup first.
+    public void ClearAll()
+    {
+        TopItems.Clear();
+        _currentPage = 0;
+        RecountPages();
+        RefreshPage();
+        RefreshSearch();
+        OnPropertyChanged(nameof(IsEmpty));
+        SaveNow();
     }
 
     public void RecountPages()
