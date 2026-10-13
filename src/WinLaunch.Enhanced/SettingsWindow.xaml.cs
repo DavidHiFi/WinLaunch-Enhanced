@@ -478,7 +478,7 @@ public partial class SettingsWindow : Window
 
         var card = Section("Your data");
         ActionRow(card, "Data folder", _vm.Store.Directory, "Open", () => Open(_vm.Store.Directory));
-        ActionRow(card, "Back up now", $"Keeps the last 10 copies in {System.IO.Path.GetFileName(_vm.Store.BackupDir)}", "Back up", () =>
+        ActionRow(card, "Back up now", "Snapshots your app layout right now. The app also does this on every save, keeping the last 10", "Back up", () =>
         {
             _vm.SaveNow();
             Toast("Backup saved");
