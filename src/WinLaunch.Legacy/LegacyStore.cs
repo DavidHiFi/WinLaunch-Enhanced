@@ -101,9 +101,33 @@ public sealed class LegacyStore
         return Uri.TryCreate(s, UriKind.Absolute, out var u) && !u.IsFile && u.Scheme.Length > 1;
     }
 
+    // The cached copy of a LinkCache entry: LinkCache\<name>.lnk, with ".lnk"
+    // appended when the stored name has no extension.
+    public string CachedLinkPath(string application)
+    {
+        if (string.IsNullOrEmpty(application))
+            return null;
+        var lnk = Path.Combine(LinkCachePath, application);
+        if (!lnk.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
+            lnk += ".lnk";
+        return lnk;
+    }
+
+    // True when the entry has a cached .lnk on disk. Packaged-app shortcuts
+    // (shell:AppsFolder) resolve to an empty target, so this is what tells a
+    // healthy app tile from a missing one.
+    public bool IsCachedLink(string application)
+    {
+        var lnk = CachedLinkPath(application);
+        return lnk != null && File.Exists(lnk);
+    }
+
     // Resolves a LinkCache entry (a GUID-named .lnk) to its real target.
     // Returns null when the entry is missing or unresolvable; callers treat
     // the tile as broken and offer removal, never a silent dead control.
+    // Empty (not null) means a shortcut the shell owns, such as a packaged
+    // app pinned out of shell:AppsFolder: TargetPath is empty there, and the
+    // .lnk itself is what gets launched and drawn.
     [SupportedOSPlatform("windows")]
     public string ResolveLinkTarget(string application)
     {
@@ -113,9 +137,7 @@ public sealed class LegacyStore
             return application;
         if (Path.IsPathRooted(application) && (File.Exists(application) || System.IO.Directory.Exists(application)))
             return application;
-        var lnk = Path.Combine(LinkCachePath, application);
-        if (!lnk.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
-            lnk += ".lnk";
+        var lnk = CachedLinkPath(application);
         if (!File.Exists(lnk))
             return null;
         try

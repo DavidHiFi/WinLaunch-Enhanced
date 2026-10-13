@@ -18,6 +18,9 @@ public sealed class HotkeyService : IDisposable
     private const uint MOD_CONTROL = 0x0002;
     private const uint MOD_SHIFT = 0x0004;
     private const uint MOD_WIN = 0x0008;
+    // Windows 7 and later: kill key auto-repeat at the source, so a held
+    // combo cannot toggle the overlay show-then-hide in the middle of a drag.
+    private const uint MOD_NOREPEAT = 0x4000;
 
     [DllImport("user32.dll", SetLastError = true)] private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
     [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
@@ -58,7 +61,7 @@ public sealed class HotkeyService : IDisposable
             LastFailure = HotkeyFailure.Invalid;
             return false;
         }
-        if (!RegisterHotKey(handle, HOTKEY_ID, mods, vk))
+        if (!RegisterHotKey(handle, HOTKEY_ID, mods | MOD_NOREPEAT, vk))
         {
             LastFailure = Marshal.GetLastWin32Error() == ERROR_HOTKEY_ALREADY_REGISTERED
                 ? HotkeyFailure.Taken : HotkeyFailure.Other;

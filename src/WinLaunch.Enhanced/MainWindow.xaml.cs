@@ -301,8 +301,17 @@ public partial class MainWindow : Window
 
     public void ReapplyComposition() => ApplyComposition();
 
+    private DateTime _lastHotkeyToggle = DateTime.MinValue;
+
     private void ToggleFromHotkey()
     {
+        // Ignore hotkey key-repeat: a held combo would toggle show-then-hide
+        // and yank the overlay away in the middle of a drag from Explorer.
+        var now = DateTime.UtcNow;
+        bool repeat = (now - _lastHotkeyToggle).TotalMilliseconds < 300;
+        _lastHotkeyToggle = now;
+        if (repeat)
+            return;
         if (Visibility != Visibility.Visible && _vm.Settings.BlockOnFullscreen && FullscreenGuard.ForegroundIsFullscreen())
             return;
         ToggleOverlay();
@@ -321,12 +330,15 @@ public partial class MainWindow : Window
         PositionWindow();
         ApplyComposition();
         BeginAnimation(AlphaProperty, null);
-        Alpha = 0;
+        // One alpha step above zero: a fully transparent layered window lets
+        // mouse messages through, so the board would not be a drop target for
+        // the first instants of the fade-in (mid-drag summon).
+        Alpha = 1.0 / 255.0;
         // Show(), not Visibility = Visible: the HWND exists from startup, and
         // WPF only treats the window as shown after Show().
         Show();
         try { Activate(); } catch (InvalidOperationException) { }
-        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140))
+        var fade = new DoubleAnimation(1.0 / 255.0, 1, TimeSpan.FromMilliseconds(140))
         {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
         };

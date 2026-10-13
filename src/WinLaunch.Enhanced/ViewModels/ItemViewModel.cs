@@ -66,6 +66,13 @@ public sealed class ItemViewModel : INotifyPropertyChanged
             Broken = false;
             return;
         }
+        // An empty resolution with an existing cached .lnk is a packaged app
+        // (shell:AppsFolder): the shell owns the target, so nothing is missing.
+        if (!IsFolder && string.IsNullOrEmpty(ResolvedTarget) && _store.IsCachedLink(Model.Application))
+        {
+            Broken = false;
+            return;
+        }
         Broken = !IsFolder && (ResolvedTarget == null ||
             (!File.Exists(ResolvedTarget) && !System.IO.Directory.Exists(ResolvedTarget)));
     }

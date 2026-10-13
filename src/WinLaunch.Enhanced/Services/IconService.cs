@@ -69,6 +69,11 @@ public static class IconService
             if (item.IsFolder)
                 return await Task.Run(() => GetFolderIcon(item, store, cacheDir, ct), ct);
             var target = store.ResolveLinkTarget(item.Application);
+            // Packaged-app shortcuts (shell:AppsFolder) resolve to an empty
+            // target; the shell serves their icon from the cached .lnk itself,
+            // exactly like the original's thumbnail of the cached link.
+            if (string.IsNullOrEmpty(target) && store.IsCachedLink(item.Application))
+                return await Task.Run(() => GetFileIcon(store.CachedLinkPath(item.Application), cacheDir), ct);
             if (target == null)
                 return GetInitialTile(item.Name);
             if (LegacyStore.IsUrl(target))
@@ -225,6 +230,9 @@ public static class IconService
             if (k.IsFolder)
                 continue;
             var target = store.ResolveLinkTarget(k.Application);
+            // Packaged apps resolve empty; their cached .lnk still has an icon.
+            if (string.IsNullOrEmpty(target) && store.IsCachedLink(k.Application))
+                target = store.CachedLinkPath(k.Application);
             if (target != null && (File.Exists(target) || Directory.Exists(target)))
                 kids.Add((k, target));
             if (kids.Count == 9)

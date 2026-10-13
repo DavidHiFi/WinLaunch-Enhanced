@@ -19,21 +19,37 @@ foreach (var item in items)
         Console.WriteLine($"folder page={item.Page} idx={item.GridIndex} \"{item.Name}\" children={item.Items?.Count ?? 0}");
         foreach (var child in item.Items ?? new List<ICItem>())
         {
-            var target = store.ResolveLinkTarget(child.Application);
-            if (target == null || (!File.Exists(target) && !Directory.Exists(target)))
-            { broken++; Console.WriteLine($"  BROKEN \"{child.Name}\" -> {child.Application} (target: {target ?? "unresolvable"})"); }
+            if (!Healthy(store, child))
+            { broken++; Console.WriteLine($"  BROKEN \"{child.Name}\" -> {child.Application} (target: {Describe(store, child)})"); }
         }
     }
     else
     {
         apps++;
-        var target = store.ResolveLinkTarget(item.Application);
-        if (target == null || (!File.Exists(target) && !Directory.Exists(target)))
+        if (!Healthy(store, item))
         {
             broken++;
-            Console.WriteLine($"BROKEN \"{item.Name}\" -> {item.Application} (target: {target ?? "unresolvable"})");
+            Console.WriteLine($"BROKEN \"{item.Name}\" -> {item.Application} (target: {Describe(store, item)})");
         }
     }
+}
+
+// A packaged-app shortcut (shell:AppsFolder) resolves to an empty target; it is
+// healthy when its cached .lnk exists, matching the app's own judgment.
+static bool Healthy(LegacyStore store, ICItem item)
+{
+    var target = store.ResolveLinkTarget(item.Application);
+    if (string.IsNullOrEmpty(target))
+        return store.IsCachedLink(item.Application);
+    return File.Exists(target) || Directory.Exists(target);
+}
+
+static string Describe(LegacyStore store, ICItem item)
+{
+    var target = store.ResolveLinkTarget(item.Application);
+    if (string.IsNullOrEmpty(target))
+        return store.IsCachedLink(item.Application) ? "empty, cached" : "unresolvable";
+    return target;
 }
 
 Console.WriteLine($"top-level: {items.Count} (folders: {folders}, loose apps: {apps}, nested: {nested}, unresolvable: {broken})");

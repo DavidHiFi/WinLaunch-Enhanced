@@ -879,7 +879,14 @@ public partial class SpringboardView : UserControl
             };
             items.Add(always);
             if (item.ResolvedTarget != null && !LegacyStore.IsUrl(item.ResolvedTarget))
-                items.Add(Item("Open file location", () => RevealInExplorer(item.ResolvedTarget), null, ""));
+            {
+                // Packaged apps resolve empty: reveal their cached .lnk, the
+                // file that actually launches them, instead of a dead command.
+                var reveal = string.IsNullOrEmpty(item.ResolvedTarget)
+                    ? VM.Store.CachedLinkPath(item.Model.Application)
+                    : item.ResolvedTarget;
+                items.Add(Item("Open file location", () => RevealInExplorer(reveal), null, ""));
+            }
         }
         items.Add(new Separator());
         items.Add(Item("Edit…", () => EditItem(item), null, ""));
@@ -1061,7 +1068,15 @@ public partial class SpringboardView : UserControl
         item.RefreshTarget();
         EditTitle.Text = item.IsFolder ? "Edit folder" : "Edit app";
         EditName.Text = m.Name ?? "";
-        _editOriginalPath = item.ResolvedTarget ?? m.Application ?? "";
+        // Packaged apps resolve to an empty string: show the cached .lnk they
+        // run, so the location is never a blank field (the original fell back
+        // to the stored reference the same way).
+        if (!string.IsNullOrEmpty(item.ResolvedTarget))
+            _editOriginalPath = item.ResolvedTarget;
+        else if (m.Application != null && (Path.IsPathRooted(m.Application) || LegacyStore.IsUrl(m.Application)))
+            _editOriginalPath = m.Application;
+        else
+            _editOriginalPath = VM.Store.CachedLinkPath(m.Application) ?? m.Application ?? "";
         EditPath.Text = _editOriginalPath;
         EditArgs.Text = m.Arguments ?? "";
         EditKeywords.Text = m.Keywords ?? "";
@@ -2031,7 +2046,11 @@ public partial class SpringboardView : UserControl
                 path.EndsWith(".url", StringComparison.OrdinalIgnoreCase))
             {
                 try { VM.AddModel(LinkImporter.Import(path, VM.Store), VM.CurrentPage); }
-                catch { }
+                catch (Exception ex)
+                {
+                    // A failed pin must never look like a successful no-op.
+                    ShowNotice($"Could not add {Path.GetFileName(path)}", ex.Message);
+                }
             }
         }
         VM.RequestSave();

@@ -11,6 +11,22 @@ public static class LauncherService
     public static void Launch(ICItem item, LegacyStore store, bool asAdmin = false)
     {
         var target = store.ResolveLinkTarget(item.Application);
+        // Packaged-app shortcuts (shell:AppsFolder) resolve to an empty target;
+        // like the original, start the cached .lnk itself and let the shell
+        // resolve the app.
+        if (string.IsNullOrEmpty(target) && store.IsCachedLink(item.Application))
+        {
+            var lnkPsi = new ProcessStartInfo
+            {
+                FileName = store.CachedLinkPath(item.Application),
+                Arguments = item.Arguments ?? "",
+                UseShellExecute = true,
+            };
+            if (item.RunAsAdmin || asAdmin)
+                lnkPsi.Verb = "runas";
+            Process.Start(lnkPsi);
+            return;
+        }
         if (target == null)
             throw new FileNotFoundException($"Target not found for \"{item.Name}\".", item.Application);
         if (LegacyStore.IsUrl(target))

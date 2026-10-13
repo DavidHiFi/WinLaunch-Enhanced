@@ -15,6 +15,7 @@ public static class FullscreenGuard
     [DllImport("user32.dll")] private static extern bool GetMonitorInfo(IntPtr m, ref MONITORINFO mi);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern IntPtr GetWindowLongPtr(IntPtr h, int index);
 
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int L, T, R, B; }
     [StructLayout(LayoutKind.Sequential)]
@@ -36,6 +37,14 @@ public static class FullscreenGuard
             if (c is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd")
                 return false;
             if (!GetWindowRect(h, out var r))
+                return false;
+            // A framed window is never true fullscreen: a maximized Explorer
+            // or browser also covers a taskbar-less monitor's rect but must
+            // not veto the mid-drag summon. Borderless games still match the
+            // rect test below.
+            const int GWL_STYLE = -16;
+            const long WS_CAPTION = 0x00C00000;
+            if ((GetWindowLongPtr(h, GWL_STYLE).ToInt64() & WS_CAPTION) != 0)
                 return false;
             var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
             if (!GetMonitorInfo(MonitorFromWindow(h, 2), ref mi))
