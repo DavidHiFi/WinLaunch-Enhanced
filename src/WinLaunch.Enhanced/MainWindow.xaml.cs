@@ -49,7 +49,6 @@ public partial class MainWindow : Window
         Board.OpenSettings += OpenSettings;
         Board.QuitRequested += () => Dispatcher.BeginInvoke(Close);
         _hotkey.Pressed += () => Dispatcher.BeginInvoke(ToggleFromHotkey);
-        PositionWindow();
         SetupTray();
         if (_vm.Prefs.CheckForUpdates)
             _ = _updates.CheckAsync();
@@ -68,7 +67,6 @@ public partial class MainWindow : Window
     {
         PositionWindow();
         ApplyComposition();
-        double left = Left;
         Left = -32000;
         Alpha = 0;
         ShowActivated = false;
@@ -77,7 +75,7 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(new Action(() =>
         {
             Visibility = Visibility.Hidden;
-            Left = left;
+            PositionWindow();
             ShowActivated = true;
         }), DispatcherPriority.ContextIdle);
     }
@@ -88,8 +86,16 @@ public partial class MainWindow : Window
         Visibility = Visibility.Hidden;
     }
 
+    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    private const uint SwpNoZOrder = 0x0004, SwpNoActivate = 0x0010;
+
+    // Screen coordinates are device pixels. The window moves there first, so the
+    // DPI read next is the target screen's, not the screen the window was last on.
     private void PositionWindow()
     {
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero)
+            return; // Nothing to move before the window has a handle.
         try
         {
             var screens = WinForms.Screen.AllScreens;
@@ -98,7 +104,7 @@ public partial class MainWindow : Window
                     ? WinForms.Screen.FromPoint(WinForms.Cursor.Position)
                     : screens[Math.Clamp(_vm.Settings.ScreenIndex, 0, screens.Length - 1)];
             var area = _vm.Settings.FillScreen ? screen.Bounds : screen.WorkingArea;
-            // Screen coordinates are device pixels; WPF positions in DIPs.
+            SetWindowPos(handle, IntPtr.Zero, area.Left, area.Top, area.Width, area.Height, SwpNoZOrder | SwpNoActivate);
             var dpi = VisualTreeHelper.GetDpi(this);
             Left = area.Left / dpi.DpiScaleX;
             Top = area.Top / dpi.DpiScaleY;
