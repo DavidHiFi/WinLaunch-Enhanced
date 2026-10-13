@@ -13,6 +13,11 @@ public static class LauncherService
         var target = store.ResolveLinkTarget(item.Application);
         if (target == null)
             throw new FileNotFoundException($"Target not found for \"{item.Name}\".", item.Application);
+        if (LegacyStore.IsUrl(target))
+        {
+            Process.Start(new ProcessStartInfo { FileName = target, UseShellExecute = true });
+            return;
+        }
         var psi = new ProcessStartInfo
         {
             FileName = target,

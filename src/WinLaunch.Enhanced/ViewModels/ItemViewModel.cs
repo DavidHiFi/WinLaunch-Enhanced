@@ -50,14 +50,22 @@ public sealed class ItemViewModel : INotifyPropertyChanged
     }
 
     // First nine children, drawn as the 3x3 miniature grid on a folder tile.
-    public IReadOnlyList<ItemViewModel> PreviewChildren => Children.Take(9).ToList();
+    public IReadOnlyList<ItemViewModel> PreviewChildren =>
+        Model.ShowMiniatures ? Children.Take(9).ToList() : new List<ItemViewModel>();
 
     // Folders with a custom icon show it instead of the miniature grid.
     public bool HasCustomIcon => IsFolder && !string.IsNullOrEmpty(Model.IconPath);
 
+    public string Tooltip => string.IsNullOrWhiteSpace(Model.Notes) ? Model.Name : Model.Name + "\n" + Model.Notes;
+
     public void RefreshTarget()
     {
         ResolvedTarget = IsFolder ? null : _store.ResolveLinkTarget(Model.Application);
+        if (!IsFolder && LegacyStore.IsUrl(ResolvedTarget))
+        {
+            Broken = false;
+            return;
+        }
         Broken = !IsFolder && (ResolvedTarget == null ||
             (!File.Exists(ResolvedTarget) && !System.IO.Directory.Exists(ResolvedTarget)));
     }
@@ -92,6 +100,19 @@ public sealed class ItemViewModel : INotifyPropertyChanged
     public void NotifyRenamed()
     {
         OnPropertyChanged(nameof(Name));
+        OnPropertyChanged(nameof(Tooltip));
+    }
+
+    // Raised after an edit applies so the tile text, tooltip, custom-icon state
+    // and preview grid all refresh together.
+    public void NotifyEdited()
+    {
+        OnPropertyChanged(nameof(Name));
+        OnPropertyChanged(nameof(Tooltip));
+        OnPropertyChanged(nameof(HasCustomIcon));
+        OnPropertyChanged(nameof(PreviewChildren));
+        RefreshTarget();
+        LoadIcon();
     }
 
     private bool _iconRequested;

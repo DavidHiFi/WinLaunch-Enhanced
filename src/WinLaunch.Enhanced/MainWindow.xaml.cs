@@ -41,6 +41,7 @@ public partial class MainWindow : Window
             return;
         Board.OverlayShouldHide += () => Dispatcher.BeginInvoke(HideOverlay);
         Board.OpenSettings += OpenSettings;
+        Board.QuitRequested += () => Dispatcher.BeginInvoke(Close);
         _hotkey.Pressed += () => Dispatcher.BeginInvoke(ToggleFromHotkey);
         PositionWindow();
         SetupTray();

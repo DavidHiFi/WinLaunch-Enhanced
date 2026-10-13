@@ -13,6 +13,7 @@ public sealed class LegacyStore
     public string ItemsPath => Path.Combine(Directory, "Items.xml");
     public string SettingsPath => Path.Combine(Directory, "Settings.xml");
     public string LinkCachePath => Path.Combine(Directory, "LinkCache");
+    public string IconCachePath => Path.Combine(Directory, "IconCache");
     public string BackupDir => Path.Combine(Directory, "ICBackup");
 
     public bool IsPortable { get; }
@@ -91,6 +92,15 @@ public sealed class LegacyStore
         new XmlSerializer(typeof(LegacySettings)).Serialize(writer, settings);
     }
 
+    // An absolute URI with a real scheme (https, mailto, steam, ...). File and
+    // bare drive paths are excluded so they keep going down the .lnk path.
+    public static bool IsUrl(string s)
+    {
+        if (string.IsNullOrEmpty(s))
+            return false;
+        return Uri.TryCreate(s, UriKind.Absolute, out var u) && !u.IsFile && u.Scheme.Length > 1;
+    }
+
     // Resolves a LinkCache entry (a GUID-named .lnk) to its real target.
     // Returns null when the entry is missing or unresolvable; callers treat
     // the tile as broken and offer removal, never a silent dead control.
@@ -99,6 +109,8 @@ public sealed class LegacyStore
     {
         if (string.IsNullOrEmpty(application))
             return null;
+        if (IsUrl(application))
+            return application;
         if (Path.IsPathRooted(application) && (File.Exists(application) || System.IO.Directory.Exists(application)))
             return application;
         var lnk = Path.Combine(LinkCachePath, application);

@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using WinLaunch.Legacy;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -24,6 +25,9 @@ using ContextMenu = System.Windows.Controls.ContextMenu;
 using Panel = System.Windows.Controls.Panel;
 using TextBox = System.Windows.Controls.TextBox;
 using Point = System.Windows.Point;
+using TextBoxBase = System.Windows.Controls.Primitives.TextBoxBase;
+using ButtonBase = System.Windows.Controls.Primitives.ButtonBase;
+using WpfOpenFolderDialog = Microsoft.Win32.OpenFolderDialog;
 
 namespace WinLaunch.Enhanced.Views;
 
@@ -49,6 +53,7 @@ public partial class SpringboardView : UserControl
 
     public event Action OverlayShouldHide;
     public event Action OpenSettings;
+    public event Action QuitRequested;
 
     // Counts dialogs this view opened, so the window does not auto-hide when a
     // file picker or message box takes focus.
@@ -144,6 +149,7 @@ public partial class SpringboardView : UserControl
         SearchBox.Text = "";
         CloseFolder(animate: false);
         ClosePrompt();
+        CloseEdit();
         SetEditMode(false);
         Refresh();
         Dispatcher.BeginInvoke(new Action(() =>
@@ -232,7 +238,7 @@ public partial class SpringboardView : UserControl
 
     private void Root_MouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (FolderLayer.Visibility == Visibility.Visible || PromptLayer.Visibility == Visibility.Visible)
+        if (FolderLayer.Visibility == Visibility.Visible || AnyDialogOpen)
             return;
         if ((DateTime.UtcNow - _lastWheel).TotalMilliseconds < 280)
             return;
@@ -296,6 +302,14 @@ public partial class SpringboardView : UserControl
         Launch(item, false);
     }
 
+    private void OpenItem(ItemViewModel item)
+    {
+        if (item.IsFolder)
+            OpenFolder(item);
+        else
+            Launch(item, false);
+    }
+
     private void Launch(ItemViewModel item, bool asAdmin)
     {
         try
@@ -323,16 +337,10 @@ public partial class SpringboardView : UserControl
         ActiveFolder = folder;
         folder.LoadIcon();
         FolderTitle.Text = folder.Name;
-        var s = VM.Settings;
         FolderGrid.ItemsSource = folder.Children;
         FolderLayer.Visibility = Visibility.Visible;
         FolderLayer.UpdateLayout();
-        var grid = FindPanel<UniformGrid>(FolderGrid);
-        int cols = Math.Clamp(folder.Children.Count, 1, Math.Max(1, Math.Min(s.FolderColumns, s.Columns)));
-        if (grid != null)
-            grid.Columns = cols;
-        double cellH = (double)Resources["TileCellHeight"];
-        FolderScroll.MaxHeight = Math.Max(1, Math.Min(s.FolderRows, 4)) * cellH;
+        SizeFolderGrid(folder);
         FolderScroll.ScrollToTop();
         // Launchpad pushes the board out of focus behind an open folder.
         PageHost.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 16 };
@@ -347,6 +355,17 @@ public partial class SpringboardView : UserControl
         Dispatcher.BeginInvoke(new Action(() =>
             FolderGrid.MoveFocus(new TraversalRequest(FocusNavigationDirection.First))),
             DispatcherPriority.Input);
+    }
+
+    private void SizeFolderGrid(ItemViewModel folder)
+    {
+        var s = VM.Settings;
+        var grid = FindPanel<UniformGrid>(FolderGrid);
+        int cols = Math.Clamp(folder.Children.Count, 1, Math.Max(1, Math.Min(s.FolderColumns, s.Columns)));
+        if (grid != null)
+            grid.Columns = cols;
+        double cellH = (double)Resources["TileCellHeight"];
+        FolderScroll.MaxHeight = Math.Max(1, Math.Min(s.FolderRows, 4)) * cellH;
     }
 
     private void FolderDim_MouseUp(object sender, MouseButtonEventArgs e)
@@ -439,7 +458,7 @@ public partial class SpringboardView : UserControl
     // Typing anywhere on the board starts a search.
     private void OnTextInput(object sender, TextCompositionEventArgs e)
     {
-        if (SearchBox.IsKeyboardFocused || FolderTitle.IsKeyboardFocused || PromptBox.IsKeyboardFocused)
+        if (Keyboard.FocusedElement is TextBoxBase || AnyDialogOpen)
             return;
         if (string.IsNullOrEmpty(e.Text) || char.IsControl(e.Text[0]) || SearchPill.Visibility != Visibility.Visible)
             return;
@@ -458,6 +477,12 @@ public partial class SpringboardView : UserControl
         if (PromptLayer.Visibility == Visibility.Visible)
         {
             if (e.Key == Key.Escape) { ClosePrompt(); e.Handled = true; }
+            return;
+        }
+        if (EditLayer.Visibility == Visibility.Visible)
+        {
+            if (e.Key == Key.Escape) { CloseEdit(); e.Handled = true; }
+            else if (e.Key == Key.Enter && Keyboard.FocusedElement is TextBox) { EditSave_Click(null, null); e.Handled = true; }
             return;
         }
         if (e.Key == Key.Escape)
@@ -616,46 +641,138 @@ public partial class SpringboardView : UserControl
         menu.IsOpen = true;
     }
 
+    // Each surface fills its own menu. The event bubbles tile -> folder band ->
+    // board, so outer handlers step aside when an inner one owns the click.
     private void Root_ContextMenuOpening(object sender, ContextMenuEventArgs e)
     {
-        if (!IsEmptySurface(e.OriginalSource))
+        var src = e.OriginalSource as DependencyObject;
+        if (FindTile(src) != null || IsInsideElement(src, FolderBand))
+            return;
+        if (AnyDialogOpen || IsInside<TextBoxBase>(src))
         {
             e.Handled = true;
             return;
         }
-        Root.ContextMenu = BuildBoardMenu();
+        Fill(Root.ContextMenu, FolderLayer.Visibility == Visibility.Visible && ActiveFolder != null
+            ? FolderMenuItems(ActiveFolder)
+            : BoardMenuItems());
     }
 
-    // Empty space is the board's own panels. Tiles, buttons, the search pill and
-    // text fields handle their own clicks and menus.
+    private void FolderBand_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        var src = e.OriginalSource as DependencyObject;
+        if (FindTile(src) != null)
+            return;
+        if (AnyDialogOpen || ActiveFolder == null || IsInside<TextBoxBase>(src))
+        {
+            e.Handled = true;
+            return;
+        }
+        Fill(FolderBand.ContextMenu, FolderMenuItems(ActiveFolder));
+    }
+
+    private void Tile_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        if (sender is not Button b || b.Tag is not ItemViewModel item)
+            return;
+        if (AnyDialogOpen)
+        {
+            e.Handled = true;
+            return;
+        }
+        _holdTimer.Stop();
+        b.ContextMenu ??= new ContextMenu();
+        Fill(b.ContextMenu, TileMenuItems(item));
+    }
+
+    private bool AnyDialogOpen =>
+        PromptLayer.Visibility == Visibility.Visible || EditLayer.Visibility == Visibility.Visible;
+
+    // Empty space: anything on the board that is not a control, the search
+    // pill, a chip or an open sheet.
     private bool IsEmptySurface(object source)
     {
-        if (source is not DependencyObject d || FolderLayer.Visibility == Visibility.Visible ||
-            PromptLayer.Visibility == Visibility.Visible)
+        if (source is not DependencyObject d || FolderLayer.Visibility == Visibility.Visible || AnyDialogOpen)
             return false;
-        return (d is Panel || d is ItemsControl) && !IsInside<Button>(d) && !IsInside<TextBox>(d) && !IsInside<Border>(d);
+        return !IsInside<ButtonBase>(d) && !IsInside<TextBoxBase>(d) &&
+               !IsInsideElement(d, SearchPill) && !IsInsideElement(d, CalcChip) && !IsInsideElement(d, UndoToast);
     }
 
+    private static DependencyObject ParentOf(DependencyObject d) =>
+        d is Visual || d is System.Windows.Media.Media3D.Visual3D
+            ? VisualTreeHelper.GetParent(d)
+            : LogicalTreeHelper.GetParent(d);
+
+    // Walks up to the board root; the UserControl's own template is not part of the board.
     private bool IsInside<T>(DependencyObject d) where T : DependencyObject
     {
-        for (var cur = d; cur != null && cur != this; cur = VisualTreeHelper.GetParent(cur))
+        for (var cur = d; cur != null && cur != Root && cur != this; cur = ParentOf(cur))
             if (cur is T)
                 return true;
         return false;
     }
 
+    private bool IsInsideElement(DependencyObject d, DependencyObject element)
+    {
+        for (var cur = d; cur != null && cur != this; cur = ParentOf(cur))
+            if (cur == element)
+                return true;
+        return false;
+    }
+
+    private ItemViewModel FindTile(DependencyObject d)
+    {
+        for (var cur = d; cur != null && cur != Root && cur != this; cur = ParentOf(cur))
+            if (cur is Button b && b.Tag is ItemViewModel item)
+                return item;
+        return null;
+    }
+
+    private static void Fill(ContextMenu menu, IEnumerable<object> items)
+    {
+        menu.Items.Clear();
+        foreach (var item in items)
+            menu.Items.Add(item);
+    }
+
     public ContextMenu BuildBoardMenu()
     {
         var menu = new ContextMenu();
-        menu.Items.Add(Item("Add icon…", () => Add_Click(null, null), null, "\uE710"));
-        menu.Items.Add(Item("Add folder", NewFolder, "Ctrl+N", "\uE8F4"));
-        menu.Items.Add(Item(VM.EditMode ? "Done editing" : "Edit layout", () => SetEditMode(!VM.EditMode), "Ctrl+E",
-            VM.EditMode ? "\uE73E" : "\uE70F"));
-        menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Settings", () => OpenSettings?.Invoke(), "Ctrl+,", "\uE713"));
-        menu.Items.Add(Item("Hide launcher", () => OverlayShouldHide?.Invoke(), "Esc", "\uE711"));
+        Fill(menu, BoardMenuItems());
         return menu;
     }
+
+    // The original's board menu (add file, folder, link, installed apps,
+    // settings, quit) plus Enhanced's group folder and layout editing.
+    private List<object> BoardMenuItems() => new()
+    {
+        Item("Add app or file…", () => AddFiles(null), null, ""),
+        Item("Add folder shortcut…", () => AddFolderShortcut(null), null, ""),
+        Item("Add web link…", () => AddWebLink(null), null, ""),
+        Item("New folder", NewFolder, "Ctrl+N", ""),
+        Item("Add installed apps…", AddInstalledApps, null, ""),
+        new Separator(),
+        Item(VM.EditMode ? "Done editing" : "Edit layout", () => SetEditMode(!VM.EditMode), "Ctrl+E",
+            VM.EditMode ? "" : ""),
+        Item("Settings", () => OpenSettings?.Invoke(), "Ctrl+,", ""),
+        new Separator(),
+        Item("Hide launcher", () => OverlayShouldHide?.Invoke(), "Esc", ""),
+        Danger(Item("Quit WinLaunch", Quit, null, "")),
+    };
+
+    private List<object> FolderMenuItems(ItemViewModel folder) => new()
+    {
+        Item("Add app or file to folder…", () => AddFiles(folder), null, ""),
+        Item("Add folder shortcut…", () => AddFolderShortcut(folder), null, ""),
+        Item("Add web link…", () => AddWebLink(folder), null, ""),
+        new Separator(),
+        Item("Edit folder…", () => EditItem(folder), null, ""),
+        Item("Rename folder", () => RenameItem(folder), "F2", ""),
+        Item(VM.EditMode ? "Done editing" : "Edit layout", () => SetEditMode(!VM.EditMode), "Ctrl+E",
+            VM.EditMode ? "" : ""),
+        new Separator(),
+        Item("Close folder", () => CloseFolder(), "Esc", ""),
+    };
 
     private static MenuItem Item(string header, Action click, string gesture = null, string glyph = null)
     {
@@ -664,34 +781,43 @@ public partial class SpringboardView : UserControl
         return mi;
     }
 
-    private void Tile_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    private static MenuItem Danger(MenuItem mi)
     {
-        if (sender is not Button b || b.Tag is not ItemViewModel item)
-            return;
-        b.ContextMenu = BuildTileMenu(item);
+        mi.Tag = "danger";
+        return mi;
     }
 
     public ContextMenu BuildTileMenu(ItemViewModel item)
     {
         var menu = new ContextMenu();
+        Fill(menu, TileMenuItems(item));
+        return menu;
+    }
+
+    // The original's item menu: Open, Run as administrator, Edit, Remove,
+    // Open file location; plus rename and page moves.
+    private List<object> TileMenuItems(ItemViewModel item)
+    {
+        var items = new List<object>();
         bool inFolder = ActiveFolder != null && ActiveFolder.Children.Contains(item);
-        menu.Items.Add(Item("Open", () => Tile_Click(new Button { Tag = item }, null), "Enter",
-            item.IsFolder ? "\uE838" : "\uE768"));
+        item.RefreshTarget();
+        items.Add(Item("Open", () => OpenItem(item), "Enter", item.IsFolder ? "" : ""));
         if (!item.IsFolder)
         {
-            menu.Items.Add(Item("Run as administrator", () => Launch(item, true), null, "\uE7EF"));
-            if (item.ResolvedTarget != null)
-                menu.Items.Add(Item("Open file location", () => RevealInExplorer(item.ResolvedTarget), null, "\uED25"));
+            items.Add(Item("Run as administrator", () => Launch(item, true), "Ctrl+Shift+Enter", ""));
+            if (item.ResolvedTarget != null && !LegacyStore.IsUrl(item.ResolvedTarget))
+                items.Add(Item("Open file location", () => RevealInExplorer(item.ResolvedTarget), null, ""));
         }
-        menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Rename", () => RenameItem(item), "F2", "\uE8AC"));
+        items.Add(new Separator());
+        items.Add(Item("Edit…", () => EditItem(item), null, ""));
+        items.Add(Item("Rename", () => RenameItem(item), "F2", ""));
         if (inFolder)
         {
-            menu.Items.Add(Item("Move out of folder", () => MoveOutOfFolder(item), null, "\uE8DE"));
+            items.Add(Item("Move out of folder", () => MoveOutOfFolder(item), null, ""));
         }
         else
         {
-            var move = new MenuItem { Header = "Move to page", Icon = "\uE8AB" };
+            var move = new MenuItem { Header = "Move to page", Icon = "" };
             int pages = Math.Max(VM.PageCount, item.Model.Page + 1) + 1;
             for (int p = 0; p < pages; p++)
             {
@@ -704,14 +830,315 @@ public partial class SpringboardView : UserControl
                 mi.Click += (_, _) => MoveToPage(item, page);
                 move.Items.Add(mi);
             }
-            menu.Items.Add(move);
+            items.Add(move);
         }
-        menu.Items.Add(new Separator());
-        var remove = Item(item.IsFolder ? "Remove folder" : "Remove from launcher", () => RemoveItem(item), "Del", "\uE74D");
-        remove.Tag = "danger";
-        menu.Items.Add(remove);
-        return menu;
+        items.Add(new Separator());
+        items.Add(Danger(Item(item.IsFolder ? "Remove folder" : "Remove from launcher", () => RemoveItem(item), "Del", "")));
+        return items;
     }
+
+    private void Quit()
+    {
+        var answer = MessageBoxResult.No;
+        ShowModal(() => answer = MessageBox.Show(Window.GetWindow(this),
+            "Quit WinLaunch? The shortcut stops working until you start it again.", "Quit WinLaunch",
+            MessageBoxButton.YesNo, MessageBoxImage.Question));
+        if (answer == MessageBoxResult.Yes)
+            QuitRequested?.Invoke();
+    }
+
+    // ---- adding ----
+
+    // Adds new tiles to the current page, or to a folder when one is given.
+    private void AddModels(IEnumerable<ICItem> models, ItemViewModel folder)
+    {
+        foreach (var model in models)
+        {
+            if (folder == null)
+            {
+                VM.AddModel(model, VM.CurrentPage);
+                continue;
+            }
+            folder.Model.Items ??= new List<ICItem>();
+            model.Page = 0;
+            model.GridIndex = folder.Model.Items.Count;
+            folder.Model.Items.Add(model);
+            var vm = new ItemViewModel(model, VM.Store, VM.IconCacheDir, $"in {folder.Name}");
+            vm.RefreshTarget();
+            vm.LoadIcon();
+            folder.Children.Add(vm);
+        }
+        if (folder != null)
+        {
+            folder.LoadIcon();
+            if (ActiveFolder == folder)
+                Dispatcher.BeginInvoke(new Action(() => SizeFolderGrid(folder)), DispatcherPriority.Loaded);
+        }
+        VM.RequestSave();
+        VM.RefreshPage();
+        Refresh();
+    }
+
+    private void ImportPaths(IEnumerable<string> paths, ItemViewModel folder)
+    {
+        var added = new List<ICItem>();
+        var failed = new List<string>();
+        foreach (var path in paths)
+        {
+            try { added.Add(LinkImporter.Import(path, VM.Store)); }
+            catch (Exception ex) { failed.Add($"{Path.GetFileName(path)}: {ex.Message}"); }
+        }
+        AddModels(added, folder);
+        if (failed.Count > 0)
+            ShowModal(() => MessageBox.Show(Window.GetWindow(this), string.Join("\n", failed),
+                "Some items were not added", MessageBoxButton.OK, MessageBoxImage.Warning));
+    }
+
+    private void AddFiles(ItemViewModel folder)
+    {
+        var dlg = new WpfOpenFileDialog
+        {
+            Title = folder == null ? "Add apps or files" : $"Add to \"{folder.Name}\"",
+            Multiselect = true,
+            DereferenceLinks = false,
+            Filter = "Apps and shortcuts (*.lnk;*.exe;*.url;*.bat;*.cmd)|*.lnk;*.exe;*.url;*.bat;*.cmd|All files (*.*)|*.*",
+        };
+        bool picked = false;
+        ShowModal(() => picked = dlg.ShowDialog(Window.GetWindow(this)) == true);
+        if (picked)
+            ImportPaths(dlg.FileNames, folder);
+    }
+
+    private void AddFolderShortcut(ItemViewModel folder)
+    {
+        var dlg = new WpfOpenFolderDialog { Title = "Add folder shortcuts", Multiselect = true };
+        bool picked = false;
+        ShowModal(() => picked = dlg.ShowDialog(Window.GetWindow(this)) == true);
+        if (picked)
+            ImportPaths(dlg.FolderNames, folder);
+    }
+
+    private void AddWebLink(ItemViewModel folder)
+    {
+        ShowPrompt("Add web link", "https://", "Add", text =>
+        {
+            var url = text.Contains("://") ? text : "https://" + text;
+            if (!LegacyStore.IsUrl(url) || url.EndsWith("://"))
+            {
+                ShowModal(() => MessageBox.Show(Window.GetWindow(this), $"\"{text}\" is not a web address.",
+                    "Add web link", MessageBoxButton.OK, MessageBoxImage.Warning));
+                return;
+            }
+            AddModels(new[] { LinkImporter.ImportUrl(url) }, folder);
+        });
+    }
+
+    // The original's "Refresh installed apps": adds Start menu shortcuts that
+    // are not pinned yet; Start menu folders with two or more new apps become folders.
+    private void AddInstalledApps()
+    {
+        var answer = MessageBoxResult.No;
+        ShowModal(() => answer = MessageBox.Show(Window.GetWindow(this),
+            "Add every Start menu app that is not in WinLaunch yet?", "Add installed apps",
+            MessageBoxButton.YesNo, MessageBoxImage.Question));
+        if (answer != MessageBoxResult.Yes)
+            return;
+        CloseFolder(animate: false);
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Collect(IEnumerable<ICItem> list)
+        {
+            foreach (var i in list)
+            {
+                names.Add(i.Name ?? "");
+                Collect(i.Items ?? new List<ICItem>());
+            }
+        }
+        Collect(VM.TopItems.Select(t => t.Model));
+        var (files, folders) = InstalledApps.Scan(names);
+        var models = new List<ICItem>();
+        foreach (var file in files)
+        {
+            try { models.Add(LinkImporter.Import(file, VM.Store)); } catch { }
+        }
+        foreach (var (dir, dirFiles) in folders)
+        {
+            var group = new ICItem { IsFolder = true, Name = new DirectoryInfo(dir).Name };
+            foreach (var file in dirFiles)
+            {
+                try
+                {
+                    var child = LinkImporter.Import(file, VM.Store);
+                    child.Page = 0;
+                    child.GridIndex = group.Items.Count;
+                    group.Items.Add(child);
+                }
+                catch { }
+            }
+            if (group.Items.Count > 0)
+                models.Add(group);
+        }
+        AddModels(models, null);
+        int count = models.Sum(m => m.IsFolder ? m.Items.Count : 1);
+        ShowModal(() => MessageBox.Show(Window.GetWindow(this),
+            count == 0 ? "Every Start menu app is already in WinLaunch." : $"Added {count} apps.",
+            "Add installed apps", MessageBoxButton.OK, MessageBoxImage.Information));
+    }
+
+    // ---- edit sheet ----
+
+    private ItemViewModel _editItem;
+    private string _editIconPath;
+    private string _editOriginalPath;
+
+    private void EditItem(ItemViewModel item)
+    {
+        _editItem = item;
+        var m = item.Model;
+        item.RefreshTarget();
+        EditTitle.Text = item.IsFolder ? "Edit folder" : "Edit app";
+        EditName.Text = m.Name ?? "";
+        _editOriginalPath = item.ResolvedTarget ?? m.Application ?? "";
+        EditPath.Text = _editOriginalPath;
+        EditArgs.Text = m.Arguments ?? "";
+        EditKeywords.Text = m.Keywords ?? "";
+        EditNotes.Text = m.Notes ?? "";
+        EditAdmin.IsChecked = m.RunAsAdmin;
+        EditMiniatures.IsChecked = m.ShowMiniatures;
+        EditAppFields.Visibility = item.IsFolder ? Visibility.Collapsed : Visibility.Visible;
+        EditAdmin.Visibility = item.IsFolder ? Visibility.Collapsed : Visibility.Visible;
+        EditMiniatures.Visibility = item.IsFolder ? Visibility.Visible : Visibility.Collapsed;
+        _editIconPath = m.IconPath;
+        EditIcon.Source = item.Icon;
+        EditResetIcon.IsEnabled = !string.IsNullOrEmpty(_editIconPath);
+        EditError.Visibility = Visibility.Collapsed;
+        EditLayer.Visibility = Visibility.Visible;
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            EditName.Focus();
+            EditName.SelectAll();
+        }), DispatcherPriority.Input);
+    }
+
+    private void CloseEdit()
+    {
+        _editItem = null;
+        EditLayer.Visibility = Visibility.Collapsed;
+    }
+
+    private async void PreviewEditIcon()
+    {
+        var item = _editItem;
+        if (item == null)
+            return;
+        var probe = new ICItem
+        {
+            Name = item.Model.Name, IsFolder = item.Model.IsFolder, Items = item.Model.Items,
+            Application = item.Model.Application, IconPath = _editIconPath,
+        };
+        var bmp = await IconService.GetIconAsync(probe, VM.Store, VM.IconCacheDir, CancellationToken.None);
+        if (_editItem == item)
+            EditIcon.Source = bmp;
+        EditResetIcon.IsEnabled = !string.IsNullOrEmpty(_editIconPath);
+    }
+
+    private void EditChooseIcon_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new WpfOpenFileDialog
+        {
+            Title = "Choose an icon",
+            Filter = "Images and icons (*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.ico;*.tif;*.tiff;*.webp;*.exe;*.dll)|" +
+                     "*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.ico;*.tif;*.tiff;*.webp;*.exe;*.dll|All files (*.*)|*.*",
+        };
+        bool picked = false;
+        ShowModal(() => picked = dlg.ShowDialog(Window.GetWindow(this)) == true);
+        if (!picked)
+            return;
+        try
+        {
+            _editIconPath = IconService.SaveCustomIcon(dlg.FileName, VM.Store);
+            PreviewEditIcon();
+        }
+        catch (Exception ex)
+        {
+            ShowEditError($"Could not use that icon: {ex.Message}");
+        }
+    }
+
+    private void EditResetIcon_Click(object sender, RoutedEventArgs e)
+    {
+        _editIconPath = null;
+        PreviewEditIcon();
+    }
+
+    private void EditBrowseFile_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new WpfOpenFileDialog { Title = "Choose the app or file", DereferenceLinks = false, Filter = "All files (*.*)|*.*" };
+        bool picked = false;
+        ShowModal(() => picked = dlg.ShowDialog(Window.GetWindow(this)) == true);
+        if (picked)
+            EditPath.Text = dlg.FileName;
+    }
+
+    private void EditBrowseFolder_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new WpfOpenFolderDialog { Title = "Choose the folder" };
+        bool picked = false;
+        ShowModal(() => picked = dlg.ShowDialog(Window.GetWindow(this)) == true);
+        if (picked)
+            EditPath.Text = dlg.FolderName;
+    }
+
+    private void ShowEditError(string text)
+    {
+        EditError.Text = text;
+        EditError.Visibility = Visibility.Visible;
+    }
+
+    private void EditSave_Click(object sender, RoutedEventArgs e)
+    {
+        var item = _editItem;
+        if (item == null)
+            return;
+        var m = item.Model;
+        var name = EditName.Text.Trim();
+        if (name.Length == 0)
+        {
+            ShowEditError("Give it a name.");
+            return;
+        }
+        if (!item.IsFolder)
+        {
+            var path = EditPath.Text.Trim().Trim('"');
+            if (path != _editOriginalPath)
+            {
+                if (!LegacyStore.IsUrl(path) && !File.Exists(path) && !System.IO.Directory.Exists(path))
+                {
+                    ShowEditError("That path does not exist.");
+                    return;
+                }
+                m.Application = path;
+            }
+            m.Arguments = EditArgs.Text.Trim();
+            m.Keywords = EditKeywords.Text.Trim();
+            m.RunAsAdmin = EditAdmin.IsChecked == true;
+        }
+        else
+        {
+            m.ShowMiniatures = EditMiniatures.IsChecked == true;
+        }
+        m.Name = name;
+        m.Notes = EditNotes.Text.Trim();
+        m.IconPath = string.IsNullOrEmpty(_editIconPath) ? null : _editIconPath;
+        CloseEdit();
+        item.NotifyEdited();
+        if (ActiveFolder == item)
+            FolderTitle.Text = name;
+        VM.RequestSave();
+        VM.RefreshSearch();
+        Refresh();
+    }
+
+    private void EditCancel_Click(object sender, RoutedEventArgs e) => CloseEdit();
 
     private void RevealInExplorer(string path)
     {
@@ -722,38 +1149,7 @@ public partial class SpringboardView : UserControl
 
     // ---- edit operations ----
 
-    private void Add_Click(object sender, RoutedEventArgs e)
-    {
-        var dlg = new WpfOpenFileDialog
-        {
-            Title = "Add apps",
-            Multiselect = true,
-            Filter = "Apps and shortcuts (*.lnk;*.exe;*.url)|*.lnk;*.exe;*.url|All files (*.*)|*.*",
-        };
-        bool picked = false;
-        ShowModal(() => picked = dlg.ShowDialog(Window.GetWindow(this)) == true);
-        if (!picked)
-            return;
-        var failed = new List<string>();
-        foreach (var path in dlg.FileNames)
-        {
-            try
-            {
-                var model = LinkImporter.Import(path, VM.Store);
-                VM.AddModel(model, VM.CurrentPage);
-            }
-            catch (Exception ex)
-            {
-                failed.Add($"{Path.GetFileName(path)}: {ex.Message}");
-            }
-        }
-        VM.RequestSave();
-        VM.RefreshPage();
-        Refresh();
-        if (failed.Count > 0)
-            ShowModal(() => MessageBox.Show(Window.GetWindow(this), string.Join("\n", failed),
-                "Some apps were not added", MessageBoxButton.OK, MessageBoxImage.Warning));
-    }
+    private void Add_Click(object sender, RoutedEventArgs e) => AddFiles(null);
 
     private void NewFolder()
     {

@@ -60,17 +60,101 @@ public static class IconService
     {
         try
         {
+            var custom = ResolveIconPath(item, store);
+            if (custom != null)
+            {
+                try { return await Task.Run(() => GetCustomIcon(custom, cacheDir), ct); }
+                catch { }
+            }
             if (item.IsFolder)
                 return await Task.Run(() => GetFolderIcon(item, store, cacheDir, ct), ct);
             var target = store.ResolveLinkTarget(item.Application);
             if (target == null)
                 return GetInitialTile(item.Name);
+            if (LegacyStore.IsUrl(target))
+                return GetGlyphTile("\uE774");
             return await Task.Run(() => GetFileIcon(target, cacheDir), ct);
         }
         catch
         {
             return GetInitialTile(item.Name);
         }
+    }
+
+    private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".ico", ".tif", ".tiff", ".webp",
+    };
+
+    // A custom icon is either a decodable image or a file whose shell icon stands
+    // in for it (an .exe, .lnk, ...).
+    private static BitmapSource GetCustomIcon(string file, string cacheDir)
+    {
+        if (ImageExtensions.Contains(Path.GetExtension(file)))
+            return DecodeImage(file);
+        return GetFileIcon(file, cacheDir);
+    }
+
+    private static BitmapSource DecodeImage(string file)
+    {
+        var bmp = new BitmapImage();
+        bmp.BeginInit();
+        bmp.CacheOption = BitmapCacheOption.OnLoad;
+        bmp.DecodePixelWidth = 256;
+        bmp.UriSource = new Uri(file, UriKind.Absolute);
+        bmp.EndInit();
+        bmp.Freeze();
+        return bmp;
+    }
+
+    // Same tile shape and colors as GetInitialTile, drawn with a Segoe Fluent
+    // Icons glyph instead of a letter (used for website tiles).
+    private static BitmapSource GetGlyphTile(string glyph, double size = 128)
+    {
+        var bg = TileColor();
+        var fg = MutedColor();
+        var visual = new DrawingVisual();
+        using (var ctx = visual.RenderOpen())
+        {
+            ctx.DrawRoundedRectangle(new SolidColorBrush(bg), null, new Rect(0, 0, size, size), size * 0.22, size * 0.22);
+            var text = new FormattedText(glyph, System.Globalization.CultureInfo.CurrentUICulture,
+                System.Windows.FlowDirection.LeftToRight, new Typeface("Segoe Fluent Icons"), size * 0.5,
+                new SolidColorBrush(fg), 96);
+            ctx.DrawText(text, new System.Windows.Point(
+                (size - text.Width) / 2, (size - text.Height) / 2));
+        }
+        var bmp = new RenderTargetBitmap((int)size, (int)size, 96, 96, PixelFormats.Pbgra32);
+        bmp.Render(visual);
+        bmp.Freeze();
+        return bmp;
+    }
+
+    // Copies a user-chosen file into the shared IconCache under a GUID name so
+    // the tile keeps rendering if the original moves or is deleted.
+    public static string SaveCustomIcon(string sourceFile, LegacyStore store)
+    {
+        Directory.CreateDirectory(store.IconCachePath);
+        var name = Guid.NewGuid().ToString("D") + Path.GetExtension(sourceFile);
+        File.Copy(sourceFile, Path.Combine(store.IconCachePath, name), overwrite: true);
+        return name;
+    }
+
+    // Resolves item.IconPath to a real file: a bare name is looked up in the
+    // shared IconCache, a rooted path is used directly, anything else goes
+    // through the LinkCache like a normal target.
+    public static string ResolveIconPath(ICItem item, LegacyStore store)
+    {
+        if (string.IsNullOrEmpty(item.IconPath))
+            return null;
+        var cached = Path.Combine(store.IconCachePath, item.IconPath);
+        if (File.Exists(cached))
+            return cached;
+        if (Path.IsPathRooted(item.IconPath) && File.Exists(item.IconPath))
+            return item.IconPath;
+        var resolved = store.ResolveLinkTarget(item.IconPath);
+        if (resolved != null && File.Exists(resolved))
+            return resolved;
+        return null;
     }
 
     private static BitmapSource GetFileIcon(string target, string cacheDir)
@@ -134,12 +218,6 @@ public static class IconService
     private static BitmapSource GetFolderIcon(ICItem folder, LegacyStore store,
         string cacheDir, CancellationToken ct)
     {
-        if (!string.IsNullOrEmpty(folder.IconPath))
-        {
-            var direct = store.ResolveLinkTarget(folder.IconPath) ?? folder.IconPath;
-            if (File.Exists(direct))
-                return GetFileIcon(direct, cacheDir);
-        }
         var kids = new List<(ICItem kid, string target)>();
         foreach (var k in folder.Items ?? new List<ICItem>())
         {

@@ -66,7 +66,7 @@
     <DataTemplate x:Key="AppTileTemplate">
       <Button Style="{DynamicResource TileButton}"
               Width="{DynamicResource TileCellWidth}" Height="{DynamicResource TileCellHeight}"
-              Click="Tile_Click" Tag="{Binding}" ToolTip="{Binding Name}"
+              Click="Tile_Click" Tag="{Binding}" ToolTip="{Binding Tooltip}"
               ToolTipService.InitialShowDelay="900"
               PreviewMouseLeftButtonDown="Tile_PreviewMouseDown"
               PreviewMouseLeftButtonUp="Tile_PreviewMouseUp"
@@ -108,7 +108,7 @@
     <DataTemplate x:Key="FolderTileTemplate">
       <Button Style="{DynamicResource TileButton}"
               Width="{DynamicResource TileCellWidth}" Height="{DynamicResource TileCellHeight}"
-              Click="Tile_Click" Tag="{Binding}" ToolTip="{Binding Name}"
+              Click="Tile_Click" Tag="{Binding}" ToolTip="{Binding Tooltip}"
               ToolTipService.InitialShowDelay="900"
               PreviewMouseLeftButtonDown="Tile_PreviewMouseDown"
               PreviewMouseLeftButtonUp="Tile_PreviewMouseUp"
@@ -191,8 +191,17 @@
     <Grid Grid.Row="0" Margin="28,30,28,8">
       <Border x:Name="SearchPill" Width="300" Height="36" CornerRadius="18"
               HorizontalAlignment="Center"
-              Background="{DynamicResource GlassBrush}"
               BorderBrush="{DynamicResource GlassBorderBrush}" BorderThickness="1">
+        <Border.Style>
+          <Style TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource GlassBrush}"/>
+            <Style.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource GlassHoverBrush}"/>
+              </Trigger>
+            </Style.Triggers>
+          </Style>
+        </Border.Style>
         <Grid>
           <StackPanel x:Name="SearchHint" Orientation="Horizontal" HorizontalAlignment="Center"
                       VerticalAlignment="Center" IsHitTestVisible="False" Opacity="0.7">
@@ -337,7 +346,11 @@
         </TextBox>
         <Border x:Name="FolderBand" Margin="0,18,0,0" CornerRadius="30" Padding="24,18"
                 Background="{DynamicResource FolderBandBrush}"
-                BorderBrush="{DynamicResource GlassBorderBrush}" BorderThickness="1">
+                BorderBrush="{DynamicResource GlassBorderBrush}" BorderThickness="1"
+                ContextMenuOpening="FolderBand_ContextMenuOpening">
+          <Border.ContextMenu>
+            <ContextMenu/>
+          </Border.ContextMenu>
           <Border.Resources>
             <SolidColorBrush x:Key="LabelBrush" Color="{DynamicResource TextColor}"/>
             <x:Null x:Key="LabelEffect"/>
@@ -355,6 +368,71 @@
           </ScrollViewer>
         </Border>
       </StackPanel>
+    </Grid>
+
+    <!-- In-overlay Edit sheet: the original's Edit dialog (icon, name, path,
+         arguments, keywords, notes, admin, miniatures) without leaving the overlay. -->
+    <Grid x:Name="EditLayer" Grid.RowSpan="3" Visibility="Collapsed">
+      <Rectangle Fill="{DynamicResource DimBrush}" MouseLeftButtonUp="EditCancel_Click"/>
+      <Border Width="520" HorizontalAlignment="Center" VerticalAlignment="Center"
+              Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource CardBorderBrush}"
+              BorderThickness="1" CornerRadius="16" Padding="24"
+              TextElement.Foreground="{DynamicResource TextBrush}">
+        <StackPanel>
+          <TextBlock x:Name="EditTitle" FontSize="16" FontWeight="SemiBold"/>
+          <Grid Margin="0,18,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Button x:Name="EditIconButton" Style="{DynamicResource TileButton}" Width="92" Height="92"
+                    Padding="10" Click="EditChooseIcon_Click" ToolTip="Choose a new icon">
+              <Image x:Name="EditIcon" Width="72" Height="72" RenderOptions.BitmapScalingMode="HighQuality"/>
+            </Button>
+            <StackPanel Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center">
+              <TextBlock Text="Name" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,6"/>
+              <TextBox x:Name="EditName" Style="{DynamicResource SearchBox}"/>
+              <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <Button Content="Change icon…" Click="EditChooseIcon_Click" Margin="0,0,8,0" Padding="12,6"
+                        Style="{DynamicResource SecondaryButton}"/>
+                <Button x:Name="EditResetIcon" Content="Restore icon" Click="EditResetIcon_Click" Padding="12,6"
+                        Style="{DynamicResource SecondaryButton}"/>
+              </StackPanel>
+            </StackPanel>
+          </Grid>
+          <StackPanel x:Name="EditAppFields">
+            <TextBlock Text="Path or web address" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,16,0,6"/>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBox x:Name="EditPath" Style="{DynamicResource SearchBox}"/>
+              <Button Grid.Column="1" Content="File…" Click="EditBrowseFile_Click" Margin="8,0,0,0" Padding="12,6"
+                      Style="{DynamicResource SecondaryButton}"/>
+              <Button Grid.Column="2" Content="Folder…" Click="EditBrowseFolder_Click" Margin="8,0,0,0" Padding="12,6"
+                      Style="{DynamicResource SecondaryButton}"/>
+            </Grid>
+            <TextBlock Text="Arguments" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,14,0,6"/>
+            <TextBox x:Name="EditArgs" Style="{DynamicResource SearchBox}"/>
+            <TextBlock Text="Search keywords" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,14,0,6"/>
+            <TextBox x:Name="EditKeywords" Style="{DynamicResource SearchBox}"/>
+          </StackPanel>
+          <TextBlock Text="Notes (shown in the tooltip)" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,14,0,6"/>
+          <TextBox x:Name="EditNotes" Style="{DynamicResource SearchBox}"/>
+          <CheckBox x:Name="EditAdmin" Content="Always run as administrator" Style="{DynamicResource ToggleRow}" Margin="0,10,0,0"/>
+          <CheckBox x:Name="EditMiniatures" Content="Show app miniatures on the folder" Style="{DynamicResource ToggleRow}" Margin="0,10,0,0"/>
+          <TextBlock x:Name="EditError" Foreground="{DynamicResource WarnBrush}" FontSize="12" TextWrapping="Wrap"
+                     Margin="0,8,0,0" Visibility="Collapsed"/>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+            <Button Content="Cancel" Click="EditCancel_Click" Margin="0,0,8,0" MinWidth="88"
+                    Style="{DynamicResource SecondaryButton}"/>
+            <Button Content="Save" Click="EditSave_Click" MinWidth="88" IsDefault="False"
+                    Style="{DynamicResource PrimaryButton}"/>
+          </StackPanel>
+        </StackPanel>
+      </Border>
     </Grid>
 
     <!-- In-overlay prompt for rename and new folder (no separate window, so

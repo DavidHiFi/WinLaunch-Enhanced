@@ -30,7 +30,7 @@ public static class Program
         // never into docs/, so private app names can't leak into the repo).
         // Default renders generic samples into docs/ for the README.
         string dataDir = null, outDir = null, folderName = null, themes = null;
-        bool edit = false, settingsPages = true;
+        bool edit = false, settingsPages = true, routeTest = false;
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] == "--data" && i + 1 < args.Length) dataDir = args[++i];
@@ -39,6 +39,7 @@ public static class Program
             if (args[i] == "--themes" && i + 1 < args.Length) themes = args[++i];
             if (args[i] == "--edit") edit = true;
             if (args[i] == "--no-settings") settingsPages = false;
+            if (args[i] == "--route-test") routeTest = true;
         }
         SpringboardView.AnimationsOff = true;
 
@@ -159,6 +160,8 @@ public static class Program
                     enc.Frames.Add(BitmapFrame.Create(rtb));
                     enc.Save(fs);
                     Console.WriteLine($"wrote {outPath}");
+                    if (routeTest)
+                        RouteTest(vm, outDir, mode, w, h);
                 });
                 if (!settingsPages)
                     continue;
@@ -216,6 +219,92 @@ public static class Program
             return 1;
         }
         return 0;
+    }
+
+    // Fires the same ContextMenuOpening event WPF raises on a right-click and
+    // reports whether each surface ends up with a non-empty, unhandled menu.
+    private static void RouteTest(MainViewModel vm, string outDir, string mode, int w, int h)
+    {
+        var view = LastView;
+        int fails = 0;
+        void Check(string label, FrameworkElement source, Func<System.Windows.Controls.ContextMenu> menuOf)
+        {
+            var ctor = typeof(System.Windows.Controls.ContextMenuEventArgs).GetConstructor(
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance, null,
+                new[] { typeof(object), typeof(bool), typeof(double), typeof(double) }, null);
+            var args = (System.Windows.Controls.ContextMenuEventArgs)ctor.Invoke(new object[] { source, true, 1.0, 1.0 });
+            source.RaiseEvent(args);
+            var menu = menuOf();
+            var headers = menu == null ? "" : string.Join(" | ", menu.Items.OfType<System.Windows.Controls.MenuItem>().Select(m => m.Header));
+            bool ok = !args.Handled && menu != null && menu.Items.Count > 0;
+            if (!ok) fails++;
+            Console.WriteLine($"ROUTE {(ok ? "PASS" : "FAIL")} {label}: handled={args.Handled} items=[{headers}]");
+        }
+        T Find<T>(DependencyObject root, Func<T, bool> pred) where T : DependencyObject
+        {
+            var q = new Queue<DependencyObject>();
+            q.Enqueue(root);
+            while (q.Count > 0)
+            {
+                var cur = q.Dequeue();
+                if (cur is T t && pred(t)) return t;
+                for (int i = 0; i < VisualTreeHelper.GetChildrenCount(cur); i++)
+                    q.Enqueue(VisualTreeHelper.GetChild(cur, i));
+            }
+            return null;
+        }
+        var root = (FrameworkElement)view.FindName("Root");
+        var tileGrid = (FrameworkElement)view.FindName("TileGrid");
+        var appTile = Find<System.Windows.Controls.Button>(tileGrid, b => b.Tag is ItemViewModel i && !i.IsFolder);
+        var folderTile = Find<System.Windows.Controls.Button>(tileGrid, b => b.Tag is ItemViewModel i && i.IsFolder);
+        Check("board empty space", root, () => root.ContextMenu);
+        var gridPanel = Find<System.Windows.Controls.Primitives.UniformGrid>(tileGrid, _ => true);
+        if (gridPanel != null) Check("board grid gap", gridPanel, () => root.ContextMenu);
+        if (appTile != null) Check("app tile", appTile, () => appTile.ContextMenu);
+        if (folderTile != null)
+        {
+            Check("folder tile", folderTile, () => folderTile.ContextMenu);
+            view.OpenFolder((ItemViewModel)folderTile.Tag);
+            view.UpdateLayout();
+            var band = (System.Windows.Controls.Border)view.FindName("FolderBand");
+            var folderGrid = (FrameworkElement)view.FindName("FolderGrid");
+            Check("open folder empty space", band, () => band.ContextMenu);
+            Check("folder dim backdrop", (FrameworkElement)view.FindName("FolderDim"), () => root.ContextMenu);
+            var inner = Find<System.Windows.Controls.Button>(folderGrid, b => b.Tag is ItemViewModel);
+            if (inner != null) Check("tile inside folder", inner, () => inner.ContextMenu);
+            // Edit sheet for the folder's first app.
+            var target = inner?.Tag as ItemViewModel ?? (ItemViewModel)appTile.Tag;
+            typeof(SpringboardView).GetMethod("EditItem", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .Invoke(view, new object[] { target });
+            LastRoot.UpdateLayout();
+            var tag = mode.ToLowerInvariant().Replace(' ', '-');
+            Save(LastRoot, w, h, Path.Combine(outDir, $"route-{tag}-editsheet.png"));
+            typeof(SpringboardView).GetMethod("CloseEdit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .Invoke(view, null);
+            Save(LastRoot, w, h, Path.Combine(outDir, $"route-{tag}-folder.png"));
+        }
+        // Services behind the new menu entries, on the temp data copy only.
+        void Expect(string label, bool ok, string detail) { if (!ok) fails++; Console.WriteLine($"SERVICE {(ok ? "PASS" : "FAIL")} {label}: {detail}"); }
+        Expect("drive path is not a URL", !LegacyStore.IsUrl(@"C:\Windows") && LegacyStore.IsUrl("steam://run/1"), "C: path vs steam://");
+        var web = LinkImporter.ImportUrl("https://www.github.com/DavidHiFi");
+        Expect("web link import", web.Name == "github.com" && vm.Store.ResolveLinkTarget(web.Application) == web.Application, web.Name);
+        var dirItem = LinkImporter.Import(Path.GetTempPath(), vm.Store);
+        var dirTarget = vm.Store.ResolveLinkTarget(dirItem.Application);
+        Expect("folder shortcut import", dirTarget != null && Directory.Exists(dirTarget), $"{dirItem.Name} -> {dirTarget}");
+        var scan = InstalledApps.Scan(new HashSet<string>());
+        Expect("start menu scan", scan.Files.Count + scan.Folders.Count > 0, $"{scan.Files.Count} files, {scan.Folders.Count} folders");
+        var appVm = vm.TopItems.First(i => !i.IsFolder);
+        var png = Path.Combine(Path.GetTempPath(), "wle-test-icon.png");
+        Save(new System.Windows.Shapes.Rectangle { Width = 64, Height = 64, Fill = Brushes.Orange }, 64, 64, png);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        typeof(SpringboardView).GetMethod("EditItem", flags).Invoke(view, new object[] { appVm });
+        typeof(SpringboardView).GetField("_editIconPath", flags).SetValue(view, IconService.SaveCustomIcon(png, vm.Store));
+        typeof(SpringboardView).GetMethod("EditSave_Click", flags).Invoke(view, new object[] { null, null });
+        var resolved = IconService.ResolveIconPath(appVm.Model, vm.Store);
+        Expect("custom icon saved via edit sheet", resolved != null && File.Exists(resolved), resolved ?? "null");
+        var icon = Task.Run(() => IconService.GetIconAsync(appVm.Model, vm.Store, vm.IconCacheDir, CancellationToken.None)).GetAwaiter().GetResult();
+        Expect("custom icon decodes", icon != null && icon.PixelWidth > 0, $"{icon?.PixelWidth}px");
+        Console.WriteLine(fails == 0 ? "ROUTE ALL PASS" : $"ROUTE FAILURES: {fails}");
     }
 
     private static SpringboardView LastView;
