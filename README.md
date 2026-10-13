@@ -1,79 +1,86 @@
 # WinLaunch Enhanced
 
-A ground-up rewrite of [WinLaunch](https://github.com/jensroth-git/WinLaunch)
-(MIT, (c) 2022 MrC0rrupted), modernized for Windows 11. It keeps the original
-Launchpad look: your wallpaper blurred behind floating icons, glass folders
-with a 3x3 preview of their apps, a search pill at the top and page dots at
-the bottom. Underneath it is .NET 10 WPF instead of .NET Framework 4.8, with
-256 px shell icons, async icon caching and seven house themes
-(Catppuccin Mocha default). Labels default to FiraCode Nerd Font; any installed
-font works, set it in Appearance along with text scale and label shadow.
+A rewrite of [WinLaunch](https://github.com/jensroth-git/WinLaunch) (MIT, (c) 2022
+MrC0rrupted) for Windows 11. It keeps the original Launchpad look: your wallpaper
+blurred behind floating icons, glass folders that preview their first nine apps, a
+search pill at the top and page dots at the bottom. It runs on .NET 10 WPF instead of
+.NET Framework 4.8, loads 256 px shell icons in the background, and ships seven
+themes, with Catppuccin Mocha as the default.
 
 ## Install
 
-Grab `WinLaunchEnhanced-2.0.1-Setup.exe` from the
+Download the setup file from the
 [latest release](https://github.com/DavidHiFi/WinLaunch-Enhanced/releases/latest).
-The installer sets up Start-menu and desktop shortcuts, adds run-at-sign-in,
-checks the .NET 10 Desktop Runtime for you, and offers to launch the launcher
-right away. Uninstall any time from Windows Settings; your WinLaunch data is
-never touched.
+It installs for your user account only, adds Start menu and desktop shortcuts, can
+start WinLaunch when you sign in, and checks for the .NET 10 Desktop Runtime.
+Uninstalling from Windows Settings leaves your WinLaunch data in place.
 
-Screenshots below are rendered by `tools/PreviewRender` from the actual UI code
-(sample entries, real extracted icons, a generated stand-in wallpaper):
-
-![WinLaunch Enhanced, dark theme](docs/preview-dark.png)
+![WinLaunch Enhanced in Catppuccin Mocha](docs/preview-dark.png)
 ![An open folder](docs/preview-dark-folder.png)
-![WinLaunch Enhanced, light theme](docs/preview-light.png)
+![Catppuccin Latte](docs/preview-light.png)
 
-Settings are grouped cards in the active house theme, one tab per concern:
+## Works with your existing WinLaunch data
 
-![General settings tab](docs/settings-dark-general.png)
-![Appearance settings tab](docs/settings-dark-appearance.png)
-![Layout settings tab](docs/settings-dark-layout.png)
+Enhanced reads and writes the same files as WinLaunch 0.7.x, in the same place
+(`%APPDATA%\WinLaunch`, or next to the exe for portable installs):
 
-## Compatibility promise
+- `Items.xml`, `Settings.xml`, `LinkCache\`, `IconCache\` and `ICBackup\` are shared,
+  so both apps open the same apps and folders, custom icons included.
+- The blur preference in your `theme.xml` is used until you pick a background.
+- Every save first copies the previous `Items.xml` into `ICBackup\` and keeps the
+  last 10.
+- Opening Enhanced does not reorder anything. Saved positions stay as they are
+  until you move a tile.
 
-Enhanced reads and writes the **exact same files** as WinLaunch 0.7.x, in the
-same place (`%APPDATA%\WinLaunch`, or beside the exe for portable installs):
+## Using it
 
-- `Items.xml`, `Settings.xml`, `LinkCache\`, `ICBackup\` are shared. Both apps
-  can open the same dataset; your pinned apps and folders carry over untouched.
-- Your `theme.xml` backdrop preference (blur on/off, transparency) is honored.
-- Every save first backs up the previous `Items.xml` into `ICBackup\` (10 kept).
-- Opening Enhanced never reorders your layout: stored positions are preserved
-  byte-for-byte until you move something yourself.
+- Open and close it with your shortcut (the original's is picked up), a hot corner
+  or the tray icon. It stays closed while a game or video is fullscreen.
+- Type anywhere to search. Enter opens the top result, and Ctrl+Shift+Enter opens
+  it as administrator. Search also matches the keywords you give an app, and can
+  rank the apps you open most first. Type a sum such as `12*4.5` to get the answer.
+- Change pages with the mouse wheel, a swipe, the page dots, PageUp and PageDown,
+  or Ctrl+Left and Ctrl+Right.
+- Right-click an app for Open, Run as administrator, Open file location, Edit,
+  Rename, Move to page and Remove. Right-click a folder to open, edit, rename,
+  move or remove it.
+- Right-click empty space, or use the `+` and `...` buttons, to add an app or
+  file, a folder shortcut, a web link, a new folder, or every Start menu app you
+  have not added yet. Inside an open folder, the same menu adds straight into it.
+- Edit changes an app's icon (any image, .ico or .exe), name, path or web address,
+  arguments, search keywords, notes (shown in the tooltip) and whether it always
+  runs as administrator. For a folder it changes the icon, name, notes and whether
+  the app previews show.
+- Edit layout (hold a tile, press Ctrl+E or use the menu) makes the tiles wiggle.
+  Drag one onto another to swap them or onto a folder to move it in. The badge
+  removes a tile, and Undo or Ctrl+Z brings it back for a few seconds.
+- Drop shortcuts or programs on the board to add them. Apps whose target is
+  missing are dimmed.
 
-## What works
+## Settings
 
-- Fullscreen overlay over your blurred wallpaper (the original look), or
-  Acrylic, Mica or Solid backgrounds.
-- Paged grid sized by your rows, columns and icon size. Change pages with the
-  mouse wheel, a horizontal swipe, the page dots, PageUp/PageDown or
-  Ctrl+Left/Right.
-- Glass folders showing their first nine apps. A folder opens as a band over
-  the blurred board; click its title to rename it.
-- Search from the pill or by just typing. Enter opens the top result.
-- Edit mode (hold a tile, Ctrl+E or the menu): tiles wiggle, a badge removes
-  them, drag swaps tiles or drops an app into a folder. Removing shows an Undo
-  button for a few seconds (Ctrl+Z works too). Esc or Done ends editing.
-- Right-click a tile: open, run as administrator, open file location, rename,
-  move to page, move out of folder, remove. Right-click empty space or the
-  menu button for add apps, new folder, edit layout and settings.
-- Global hotkey (your existing combo is picked up), tray icon, add by file
-  picker or drag-and-drop, dead links shown dimmed.
-- Search does quick arithmetic (type `12*4.5`) and falls back to your web
-  search engine, both toggleable. Result ranking can follow your launch counts.
-- Seven house themes: T3 Dark/Light, Catppuccin Mocha/Latte, Tokyo Night,
-  Nord, Rose Pine. Animations follow the Windows "animation effects" setting.
-- Stays out of fullscreen apps and games, and can open from a hot corner
-  (top-left, top-right, bottom-left, bottom-right, any combination).
+Settings change the launcher as you adjust them:
 
-## What is not ported yet
+- General: start with Windows, close after opening an app, click empty space to
+  close, opening animation, which screen to use, and covering the taskbar.
+- Appearance: seven themes (T3 Dark and Light, Catppuccin Mocha and Latte, Tokyo
+  Night, Nord, Rose Pine); a wallpaper, blur, acrylic or solid background with dim
+  and blur strength; font, text size, text shadow and whether names show.
+- Layout: columns, rows, icon size, folder columns, search bar, page dots, and
+  alphabetical sorting with folders first.
+- Search: rank by use, calculator, and clearing the usage history.
+- Shortcuts: the global shortcut, the fullscreen guard and hot corners.
+- About: back up, export and import `.WLbackup` files, reload, and clear all icons.
 
-Double-tap and middle-mouse activation, gamepad and voice activation,
-desktop-link watcher, custom background images, the update checker and
-languages other than English. Contributions welcome; see DESIGN.md for the
-visual direction.
+![General settings](docs/settings-dark-general.png)
+![Appearance settings](docs/settings-dark-appearance.png)
+![Layout settings](docs/settings-dark-layout.png)
+
+## Not ported
+
+Double-tap, middle-mouse, gamepad and voice activation, the desktop shortcut
+watcher, custom background images, the update checker, and languages other than
+English. See DESIGN.md for the visual direction if you want to contribute.
 
 ## Build and run
 
@@ -82,52 +89,47 @@ dotnet build src/WinLaunch.Enhanced/WinLaunch.Enhanced.csproj
 dotnet run --project src/WinLaunch.Enhanced
 ```
 
-Use your live data by default. Point at any dataset copy with the first argument:
+It uses your live data unless you pass a folder as the first argument:
 
 ```powershell
 dotnet run --project src/WinLaunch.Enhanced -- "D:\some\WinLaunch-copy"
 ```
 
-## Verify before you switch
+`pwsh packaging\build.ps1` publishes the app and builds the installer into `dist\`
+(needs Inno Setup 6).
+
+## Checks
 
 ```powershell
-# Dataset check against your real files: counts every tile, resolves every
-# link, round-trips the XML. Exit 0 here was 20 top-level tiles
-# (10 folders, 10 apps), 70 nested, 0 broken, round-trip OK.
+# Counts every tile, resolves every link and round-trips the XML of your data.
 dotnet run --project tools/VerifyData
 
-# Headless startup check: builds the real window offscreen, settles icons,
-# prints counts. No window shown, nothing registered, nothing saved.
+# Builds the real window offscreen and prints counts. Shows nothing, saves nothing.
 dotnet run --project src/WinLaunch.Enhanced -- "<dataset-copy>" --smoke
 
-# Re-render the screenshots above after UI changes.
+# Re-renders the screenshots in docs/.
 dotnet run --project tools/PreviewRender
+
+# Works on a copy of a dataset: opens every right-click menu (board, tiles, open
+# folder) and checks web links, folder shortcuts, the Start menu scan and custom icons.
+dotnet run --project tools/PreviewRender -- --data "%APPDATA%\WinLaunch" --no-settings --route-test --out "%TEMP%\wl-check"
 ```
 
-Measured on the reference machine: the verifier counts all 90 tiles with 0 broken
-links and a clean XML round-trip; smoke builds the real window offscreen over the
-full dataset with no load error; contrast pairs in both themes check at 4.70:1
-or better (most above 7:1, see DESIGN.md).
+## Switching from the original WinLaunch
 
-## Switching from original WinLaunch
+1. Copy `%APPDATA%\WinLaunch` somewhere safe. Enhanced also backs up on every save.
+2. Quit the original WinLaunch, which holds your shortcut.
+3. Start Enhanced. It shows the same apps and folders.
+4. To go back, quit Enhanced and start the original. There is nothing to migrate.
 
-1. Back up `%APPDATA%\WinLaunch` somewhere safe (Belt and suspenders; Enhanced
-   also backs up on every save).
-2. Quit original WinLaunch (it holds your global hotkey).
-3. Start Enhanced. It opens the same pins. Press your hotkey to toggle.
-4. Rollback is quitting Enhanced and starting the original. Nothing to migrate.
+## Project layout
 
-## Layout
-
-- `src/WinLaunch.Legacy` — byte-compatible `Items.xml`/`Settings.xml`/`theme.xml`
-  models, store paths, link resolution, pre-save backups.
-- `src/WinLaunch.Enhanced` — the app (views, view-models, services, themes).
-- `tools/VerifyData` — dataset verifier. `tools/PreviewRender` — screenshot renderer.
-- `DESIGN.md` — visual direction, palette with measured contrast, motion spec.
-- `upstream/` (local reference only, not committed) — pristine upstream clone used
-  to mirror the file formats.
+- `src/WinLaunch.Legacy`: the shared file formats (`Items.xml`, `Settings.xml`,
+  `theme.xml`), data paths, link resolution and pre-save backups.
+- `src/WinLaunch.Enhanced`: the app.
+- `tools/VerifyData` and `tools/PreviewRender`: the checks above.
+- `DESIGN.md`: palette with measured contrast, and motion rules.
 
 ## License
 
-MIT. Original copyright (c) 2022 MrC0rrupted retained; see LICENSE.
-Upstream: https://github.com/jensroth-git/WinLaunch
+MIT. The original copyright, (c) 2022 MrC0rrupted, is kept; see LICENSE.

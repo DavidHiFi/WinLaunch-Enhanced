@@ -83,13 +83,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Settings = Store.LoadSettings();
             var raw = Store.LoadItems();
             TopItems.Clear();
-            foreach (var item in ApplyTopSort(raw).OrderBy(i => i.Page).ThenBy(i => i.GridIndex))
+            foreach (var item in raw.OrderBy(i => i.Page).ThenBy(i => i.GridIndex))
             {
                 var vm = new ItemViewModel(item, Store, IconCacheDir);
                 vm.RefreshTarget();
                 TopItems.Add(vm);
             }
-            Renumber();
+            if (!ApplySort())
+                Renumber();
             EnforceCapacity();
             CurrentPage = 0;
             foreach (var vm in TopItems)
@@ -107,22 +108,41 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private IEnumerable<ICItem> ApplyTopSort(List<ICItem> raw)
+    // The original's sorting: with "Sort alphabetically" on, the board is laid
+    // out by name (optionally folders first) and folder contents are sorted too.
+    // Runs on load and before every save, so new and renamed tiles fall into place.
+    public bool ApplySort()
     {
         var s = Settings;
-        var list = raw.ToList();
-        if (s.SortItemsAlphabetically && !s.SortFolderContentsOnly)
+        if (s == null || !s.SortItemsAlphabetically)
+            return false;
+        var byName = StringComparer.CurrentCultureIgnoreCase;
+        if (!s.SortFolderContentsOnly)
         {
-            list = s.SortFoldersFirst
-                ? list.OrderByDescending(i => i.IsFolder).ThenBy(i => i.Name).ToList()
-                : list.OrderBy(i => i.Name).ToList();
+            var ordered = (s.SortFoldersFirst
+                ? TopItems.OrderByDescending(i => i.IsFolder).ThenBy(i => i.Name, byName)
+                : TopItems.OrderBy(i => i.Name, byName)).ToList();
+            int cap = PageCapacity;
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                ordered[i].Model.Page = i / cap;
+                ordered[i].Model.GridIndex = i % cap;
+            }
         }
-        if (s.SortItemsAlphabetically)
+        foreach (var folder in TopItems.Where(i => i.IsFolder))
         {
-            foreach (var f in list.Where(i => i.IsFolder && i.Items != null))
-                f.Items = f.Items.OrderBy(i => i.Name).ToList();
+            var kids = folder.Children.OrderBy(c => c.Name, byName).ToList();
+            for (int i = 0; i < kids.Count; i++)
+            {
+                int at = folder.Children.IndexOf(kids[i]);
+                if (at != i)
+                    folder.Children.Move(at, i);
+                kids[i].Model.GridIndex = i;
+            }
+            folder.Model.Items = kids.Select(k => k.Model).ToList();
         }
-        return list;
+        RecountPages();
+        return true;
     }
 
     public void RefreshPage()
@@ -240,6 +260,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // Rebuilds storage order from the view, then saves (debounced 1 s).
     public void RequestSave()
     {
+        ApplySort();
         _saveCts.Cancel();
         _saveCts = new CancellationTokenSource();
         var ct = _saveCts.Token;

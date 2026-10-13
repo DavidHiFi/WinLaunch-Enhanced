@@ -15,7 +15,6 @@ using MouseEventArgs = System.Windows.Input.MouseEventArgs;
 using DragEventArgs = System.Windows.DragEventArgs;
 using UserControl = System.Windows.Controls.UserControl;
 using Button = System.Windows.Controls.Button;
-using MessageBox = System.Windows.MessageBox;
 using WpfDragDropEffects = System.Windows.DragDropEffects;
 using WpfDataFormats = System.Windows.DataFormats;
 using WpfOpenFileDialog = Microsoft.Win32.OpenFileDialog;
@@ -134,12 +133,19 @@ public partial class SpringboardView : UserControl
         double cellH = Math.Floor(PageHost.ActualHeight / rows);
         double wanted = Math.Round(70 * (s.IconSize <= 0 ? 1.4 : s.IconSize));
         double icon = Math.Floor(Math.Min(wanted, Math.Min(cellW * 0.74, cellH * 0.64)));
-        icon = Math.Max(40, icon);
+        double font = Math.Round(Math.Clamp(11.5 + icon / 40, 12, 15) * ThemeManager.TextScale, 1);
+        // Leave room for the tile padding, a little air and two lines of name,
+        // so labels are never clipped mid-line.
+        double line = Math.Ceiling(font * 1.36);
+        bool labels = s.ShowItemIconText || s.ShowFolderIconText;
+        double room = cellH - 20 - (labels ? line * 2 + 9 : 0);
+        icon = Math.Max(40, Math.Floor(Math.Min(icon, room)));
         Resources["TileCellWidth"] = cellW;
         Resources["TileCellHeight"] = cellH;
         Resources["TileIconSize"] = icon;
-        Resources["TileLabelWidth"] = Math.Max(40, cellW - 14);
-        Resources["TileFontSize"] = Math.Round(Math.Clamp(11.5 + icon / 40, 12, 15) * ThemeManager.TextScale, 1);
+        Resources["TileLabelWidth"] = Math.Max(40, cellW - 6);
+        Resources["TileLabelMaxHeight"] = line * 2;
+        Resources["TileFontSize"] = font;
     }
 
     private void PageHost_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateTileMetrics();
@@ -325,8 +331,7 @@ public partial class SpringboardView : UserControl
         }
         catch (Exception ex)
         {
-            ShowModal(() => MessageBox.Show(Window.GetWindow(this), ex.Message, "Could not open",
-                MessageBoxButton.OK, MessageBoxImage.Warning));
+            ShowNotice($"Could not open \"{item.Name}\"", ex.Message);
         }
     }
 
@@ -484,6 +489,7 @@ public partial class SpringboardView : UserControl
         if (PromptLayer.Visibility == Visibility.Visible)
         {
             if (e.Key == Key.Escape) { ClosePrompt(); e.Handled = true; }
+            else if (e.Key == Key.Enter && PromptBox.Visibility != Visibility.Visible) { PromptOk_Click(null, null); e.Handled = true; }
             return;
         }
         if (EditLayer.Visibility == Visibility.Visible)
@@ -846,12 +852,8 @@ public partial class SpringboardView : UserControl
 
     private void Quit()
     {
-        var answer = MessageBoxResult.No;
-        ShowModal(() => answer = MessageBox.Show(Window.GetWindow(this),
-            "Quit WinLaunch? The shortcut stops working until you start it again.", "Quit WinLaunch",
-            MessageBoxButton.YesNo, MessageBoxImage.Question));
-        if (answer == MessageBoxResult.Yes)
-            QuitRequested?.Invoke();
+        ShowNotice("Quit WinLaunch?", "The shortcut stops working until you start WinLaunch again.",
+            "Quit", () => QuitRequested?.Invoke());
     }
 
     // ---- adding ----
@@ -897,8 +899,7 @@ public partial class SpringboardView : UserControl
         }
         AddModels(added, folder);
         if (failed.Count > 0)
-            ShowModal(() => MessageBox.Show(Window.GetWindow(this), string.Join("\n", failed),
-                "Some items were not added", MessageBoxButton.OK, MessageBoxImage.Warning));
+            ShowNotice("Some items were not added", string.Join("\n", failed));
     }
 
     private void AddFiles(ItemViewModel folder)
@@ -932,8 +933,7 @@ public partial class SpringboardView : UserControl
             var url = text.Contains("://") ? text : "https://" + text;
             if (!LegacyStore.IsUrl(url) || url.EndsWith("://"))
             {
-                ShowModal(() => MessageBox.Show(Window.GetWindow(this), $"\"{text}\" is not a web address.",
-                    "Add web link", MessageBoxButton.OK, MessageBoxImage.Warning));
+                ShowNotice("Add web link", $"\"{text}\" is not a web address.");
                 return;
             }
             AddModels(new[] { LinkImporter.ImportUrl(url) }, folder);
@@ -942,14 +942,12 @@ public partial class SpringboardView : UserControl
 
     // The original's "Refresh installed apps": adds Start menu shortcuts that
     // are not pinned yet; Start menu folders with two or more new apps become folders.
-    private void AddInstalledApps()
+    private void AddInstalledApps() =>
+        ShowNotice("Add installed apps?", "Adds every Start menu app that is not in WinLaunch yet. " +
+            "Start menu folders with two or more new apps become folders here.", "Add", AddInstalledAppsNow);
+
+    private void AddInstalledAppsNow()
     {
-        var answer = MessageBoxResult.No;
-        ShowModal(() => answer = MessageBox.Show(Window.GetWindow(this),
-            "Add every Start menu app that is not in WinLaunch yet?", "Add installed apps",
-            MessageBoxButton.YesNo, MessageBoxImage.Question));
-        if (answer != MessageBoxResult.Yes)
-            return;
         CloseFolder(animate: false);
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         void Collect(IEnumerable<ICItem> list)
@@ -986,9 +984,8 @@ public partial class SpringboardView : UserControl
         }
         AddModels(models, null);
         int count = models.Sum(m => m.IsFolder ? m.Items.Count : 1);
-        ShowModal(() => MessageBox.Show(Window.GetWindow(this),
-            count == 0 ? "Every Start menu app is already in WinLaunch." : $"Added {count} apps.",
-            "Add installed apps", MessageBoxButton.OK, MessageBoxImage.Information));
+        ShowNotice("Add installed apps",
+            count == 0 ? "Every Start menu app is already in WinLaunch." : $"Added {count} apps.");
     }
 
     // ---- edit sheet ----
@@ -1141,6 +1138,7 @@ public partial class SpringboardView : UserControl
         if (ActiveFolder == item)
             FolderTitle.Text = name;
         VM.RequestSave();
+        VM.RefreshPage();
         VM.RefreshSearch();
         Refresh();
     }
@@ -1179,6 +1177,8 @@ public partial class SpringboardView : UserControl
             if (ActiveFolder == item)
                 FolderTitle.Text = name;
             VM.RequestSave();
+            VM.RefreshPage();
+            Refresh();
         });
     }
 
@@ -1287,6 +1287,9 @@ public partial class SpringboardView : UserControl
     {
         _promptAccept = accept;
         PromptTitle.Text = title;
+        PromptMessage.Visibility = Visibility.Collapsed;
+        PromptBox.Visibility = Visibility.Visible;
+        PromptCancel.Visibility = Visibility.Visible;
         PromptOk.Content = okText;
         PromptBox.Text = initial;
         PromptLayer.Visibility = Visibility.Visible;
@@ -1295,6 +1298,22 @@ public partial class SpringboardView : UserControl
             PromptBox.Focus();
             PromptBox.SelectAll();
         }), DispatcherPriority.Input);
+    }
+
+    // Themed stand-in for a message box: a message with OK, or with a
+    // confirm button and Cancel when onOk is given.
+    private void ShowNotice(string title, string message, string okText = "OK", Action onOk = null)
+    {
+        _promptAccept = onOk == null ? null : _ => onOk();
+        PromptTitle.Text = title;
+        PromptMessage.Text = message;
+        PromptMessage.Visibility = Visibility.Visible;
+        PromptBox.Visibility = Visibility.Collapsed;
+        PromptBox.Text = "-";
+        PromptCancel.Visibility = onOk == null ? Visibility.Collapsed : Visibility.Visible;
+        PromptOk.Content = okText;
+        PromptLayer.Visibility = Visibility.Visible;
+        Dispatcher.BeginInvoke(new Action(() => PromptOk.Focus()), DispatcherPriority.Input);
     }
 
     private void PromptBox_KeyDown(object sender, KeyEventArgs e)

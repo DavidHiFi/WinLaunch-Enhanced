@@ -31,11 +31,11 @@ house app speaks one language. Default: **Catppuccin Mocha**.
 | Token | Mocha value | Use | Contrast evidence |
 |---|---|---|---|
 | `bg` | `#1E1E2E` | overlay scrim over blurred wallpaper, 0.75 alpha | base |
-| `card` | `#313244` | tiles, folder sheet, settings groups, all solid | — |
-| `field` | `#45475A` | search box, settings inputs | — |
-| `hover` / `press` | `#45475A` / `#585B70` | tile and button states | state only, never text-bearing alone |
-| `text` | `#CDD6F4` | labels, headings | 8.69:1 on card, 11.34:1 on bg (PASS) |
-| `sub` | `#BAC2DE` | counts, hints, placeholders | 7.10:1 on card, 9.26:1 on bg (PASS) |
+| `card` | `#181825` (Mantle) | menus, sheets, settings groups | text 12.14:1, sub 9.91:1 (PASS) |
+| `field` | `#11111B` (Crust) | inputs, switch tracks, segment controls | text 12.97:1, sub 10.59:1 (PASS) |
+| `hover` / `press` | `#313244` / `#45475A` (Surface0/1) | row and button states, card borders | text on hover 8.69:1 (PASS) |
+| `text` | `#CDD6F4` | labels, headings | 12.14:1 on card, 11.34:1 on bg (PASS) |
+| `sub` | `#BAC2DE` | counts, hints, placeholders | 9.91:1 on card, 9.26:1 on bg (PASS) |
 | `accent` | `#89B4FA` | one deliberate accent: focus ring, active page dot, primary buttons | 7.79:1 on bg (PASS) |
 | `on_accent` | `#1E1E2E` | text on accent fills | 7.79:1 (PASS) |
 | `warn` | `#F38BA8` | delete confirm text | 7.08:1 on bg (PASS) |
@@ -50,8 +50,9 @@ is in the session notes.
 ## Backdrop and layers
 
 Backdrop choices: Wallpaper (default: the desktop wallpaper blurred once and
-cached, under an adjustable theme tint), Acrylic, Mica and Solid. Acrylic and
-Mica use `DWMWA_SYSTEMBACKDROP_TYPE` with the frame extended over the whole
+cached, with adjustable blur and dim), Blur, Acrylic and Solid. Blur and Acrylic
+use the Windows blur, whose strength apps cannot set, so only Wallpaper offers
+a blur slider. They use `DWMWA_SYSTEMBACKDROP_TYPE` with the frame extended over the whole
 window and a transparent WPF clear color (without both, the opaque WPF surface
 hides the blur), legacy acrylic accent as fallback, immersive dark
 mode follows the theme, accent re-applied on every show with a forced

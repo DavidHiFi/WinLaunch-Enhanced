@@ -29,8 +29,9 @@ public static class Themes
             Press = "#A1A1AA", Text = "#18181B", Sub = "#52525B", Accent = "#18181B",
             OnAccent = "#FAFAFA", AccentHover = "#3F3F46", Warn = "#D20F39", Dark = false },
         ["Catppuccin Mocha"] = new HouseTheme { Name = "Catppuccin Mocha",
-            Bg = "#1E1E2E", Card = "#313244", Field = "#45475A", Hover = "#45475A",
-            Press = "#585B70", Text = "#CDD6F4", Sub = "#BAC2DE", Accent = "#89B4FA",
+            // Base window, Mantle cards, Crust fields; Surface0/1 only for hover and press.
+            Bg = "#1E1E2E", Card = "#181825", Field = "#11111B", Hover = "#313244",
+            Press = "#45475A", Text = "#CDD6F4", Sub = "#BAC2DE", Accent = "#89B4FA",
             OnAccent = "#1E1E2E", AccentHover = "#B4BEFE", Warn = "#F38BA8", Dark = true },
         ["Catppuccin Latte"] = new HouseTheme { Name = "Catppuccin Latte",
             Bg = "#EFF1F5", Card = "#E6E9EF", Field = "#CCD0DA", Hover = "#BCC0CC",

@@ -168,7 +168,7 @@ public partial class SettingsWindow : Window
         card = Section("Opening and closing");
         Toggle(card, "Close after opening an app", "Hide the launcher as soon as an app starts",
             p.CloseOnLaunch, v => { p.CloseOnLaunch = v; Changed(); });
-        Toggle(card, "Click empty space to close", "Like the original: click between icons to dismiss",
+        Toggle(card, "Click empty space to close", "Click between icons to hide the launcher, as in the original",
             p.HideOnEmptyClick, v => { p.HideOnEmptyClick = v; Changed(); });
         Toggle(card, "Zoom animation", "The board settles in when it opens",
             p.OpenAnimation, v => { p.OpenAnimation = v; Changed(); });
@@ -192,13 +192,27 @@ public partial class SettingsWindow : Window
 
         card = Section("Background");
         var modes = ThemeManager.Backdrops;
+        var backdrop = ThemeManager.CurrentBackdrop;
         Choice(card, "Style", "Wallpaper and Blur are the original WinLaunch looks",
-            modes, Array.IndexOf(modes, ThemeManager.CurrentBackdrop),
-            i => { ThemeManager.SaveBackdrop(_vm.Store, modes[i]); Changed(); });
-        Slider(card, "Dim", "Theme tint over the wallpaper or blur, for readable labels", 0, 0.8, p.Dim,
-            100, "%", 0, 0.01, v => { p.Dim = Math.Round(v, 2); Changed(); });
-        Slider(card, "Blur", "Softness of the wallpaper (Wallpaper style)", 0, 60, p.Blur,
-            1, "", 0, 1, v => { p.Blur = Math.Round(v); Changed(); });
+            modes, Array.IndexOf(modes, backdrop), i =>
+            {
+                ThemeManager.SaveBackdrop(_vm.Store, modes[i]);
+                Changed();
+                // Dim and Blur only apply to some styles, so rebuild the page in place.
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    var offset = PageScroll.VerticalOffset;
+                    ShowPage("appearance");
+                    PageScroll.ScrollToVerticalOffset(offset);
+                }), DispatcherPriority.Background);
+            });
+        if (backdrop != "Solid")
+            Slider(card, "Dim", "Darkens the background so names stay readable", 0, 0.8, p.Dim,
+                100, "%", 0, 0.01, v => { p.Dim = Math.Round(v, 2); Changed(); });
+        // Blur and Acrylic use the Windows blur, which apps cannot adjust.
+        if (backdrop == "Wallpaper")
+            Slider(card, "Blur", "How soft the wallpaper looks", 0, 60, p.Blur,
+                1, "", 0, 1, v => { p.Blur = Math.Round(v); Changed(); });
 
         card = Section("Text");
         var fonts = ThemeManager.InstalledFonts();
@@ -306,7 +320,9 @@ public partial class SettingsWindow : Window
         card = Section("In the launcher");
         foreach (var (keys, what) in new[]
         {
-            ("Type anything", "Search"), ("Enter", "Open the top result"), ("Esc", "Close folder, search or launcher"),
+            ("Type anything", "Search"), ("Enter", "Open the top result"),
+            ("Ctrl + Shift + Enter", "Open the top result as administrator"),
+            ("Esc", "Close the folder, search or launcher"), ("Right-click", "Options for an app, folder or the board"),
             ("PageUp / PageDown", "Change page"), ("Ctrl + E", "Edit layout"), ("Ctrl + N", "New folder"),
             ("F2 / Del", "Rename or remove the focused app"), ("Ctrl + Z", "Undo a removal"), ("Ctrl + ,", "Settings"),
         })
@@ -326,7 +342,7 @@ public partial class SettingsWindow : Window
         });
         var text = new StackPanel { Margin = new Thickness(18, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         text.Children.Add(new TextBlock { Text = "WinLaunch Enhanced", FontSize = 20, FontWeight = FontWeights.SemiBold });
-        text.Children.Add(Muted($"Version {Version}. A modern rewrite of WinLaunch for Windows 11."));
+        text.Children.Add(Muted($"Version {Version}. A rewrite of WinLaunch for Windows 11."));
         text.Children.Add(Muted("MIT license. Original WinLaunch (c) 2022 MrC0rrupted."));
         head.Children.Add(text);
         PageHost.Children.Add(head);
