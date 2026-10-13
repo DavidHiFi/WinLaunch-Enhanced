@@ -66,7 +66,7 @@ Enhanced reads and writes the same files as WinLaunch 0.7.x, in the same place
 Settings change the launcher as you adjust them:
 
 - General: start with Windows, close after opening an app, click empty space to
-  close, opening animation, which screen to use, and covering the taskbar.
+  close, opening animation, add and settings buttons, which screen to use, and covering the taskbar.
 - Appearance: seven themes (T3 Dark and Light, Catppuccin Mocha and Latte, Tokyo
   Night, Nord, Rose Pine); a wallpaper, blur, acrylic or solid background with dim
   and blur strength; font, text size, text shadow and whether names show.

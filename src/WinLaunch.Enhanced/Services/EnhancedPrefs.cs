@@ -22,6 +22,8 @@ public sealed class EnhancedPrefs
     public bool CheckForUpdates { get; set; } = true;
     public bool IncludePreReleases { get; set; } = false;
     public DateTime? LastUpdateCheck { get; set; } = null;
+    public bool ShowAddButton { get; set; } = true;
+    public bool ShowSettingsButton { get; set; } = true;
     public Dictionary<string, int> LaunchCounts { get; set; } = new();
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };

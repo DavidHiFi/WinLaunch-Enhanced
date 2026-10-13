@@ -185,6 +185,11 @@ public partial class SettingsWindow : Window
             p.HideOnEmptyClick, v => { p.HideOnEmptyClick = v; Changed(); });
         Toggle(card, "Zoom animation", "The board settles in when it opens",
             p.OpenAnimation, v => { p.OpenAnimation = v; Changed(); });
+        card = Section("Buttons");
+        Toggle(card, "Add button", "The plus sign at the bottom left. Right-click still adds apps when it is off",
+            p.ShowAddButton, v => { p.ShowAddButton = v; Changed(); });
+        Toggle(card, "Settings button", "The gear at the top right. Right-click still opens the menu when it is off",
+            p.ShowSettingsButton, v => { p.ShowSettingsButton = v; Changed(); });
         card = Section("Screen");
         Toggle(card, "Open on the screen with the mouse", "Otherwise always use the screen below",
             s.OpenOnActiveDesktop, v => { s.OpenOnActiveDesktop = v; Changed(); });

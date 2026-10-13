@@ -119,6 +119,8 @@ public partial class SpringboardView : UserControl
         Resources["PageColumns"] = Math.Max(1, s.Columns);
         Resources["PageRows"] = Math.Max(1, s.Rows);
         SearchPill.Visibility = s.SearchBarVisible ? Visibility.Visible : Visibility.Hidden;
+        AddButton.Visibility = VM.Prefs.ShowAddButton ? Visibility.Visible : Visibility.Collapsed;
+        MenuButton.Visibility = VM.Prefs.ShowSettingsButton ? Visibility.Visible : Visibility.Collapsed;
         Resources["ItemLabelVisibility"] = s.ShowItemIconText ? Visibility.Visible : Visibility.Collapsed;
         Resources["FolderLabelVisibility"] = s.ShowFolderIconText ? Visibility.Visible : Visibility.Collapsed;
         UpdateTileMetrics();
