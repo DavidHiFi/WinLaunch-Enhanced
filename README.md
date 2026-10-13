@@ -51,9 +51,12 @@ Enhanced reads and writes the same files as WinLaunch 0.7.x, in the same place
   arguments, search keywords, notes (shown in the tooltip) and whether it always
   runs as administrator. For a folder it changes the icon, name, notes and whether
   the app previews show.
-- Edit layout (hold a tile, press Ctrl+E or use the menu) makes the tiles wiggle.
-  Drag one onto another to swap them or onto a folder to move it in. The badge
-  removes a tile, and Undo or Ctrl+Z brings it back for a few seconds.
+- Edit layout (hold a tile, press Ctrl+E or use the menu) makes the tiles wiggle,
+  and you can keep holding to drag straight away. Drop a tile on the middle of
+  an app to make a folder of the two, on a folder to move it inside, or anywhere
+  else to move it there. Drag an app out of an open folder to take it out, and
+  rest at the left or right edge to turn the page. The badge removes a tile, and
+  Undo or Ctrl+Z brings it back for a few seconds.
 - Drop shortcuts or programs on the board to add them. Apps whose target is
   missing are dimmed.
 
@@ -109,6 +112,11 @@ dotnet run --project src/WinLaunch.Enhanced -- "<dataset-copy>" --smoke
 
 # Re-renders the screenshots in docs/.
 dotnet run --project tools/PreviewRender
+
+# Moves the real mouse through seven drags on a copy of your data (into a
+# folder, app onto app, empty spot, hold then drag, out of a folder, reorder
+# inside a folder, edge paging). Your cursor moves on its own for a few seconds.
+dotnet run --project tools/PreviewRender -- --data "%APPDATA%\WinLaunch" --drag-test
 
 # Works on a copy of a dataset: opens every right-click menu (board, tiles, open
 # folder) and checks web links, folder shortcuts, the Start menu scan and custom icons.

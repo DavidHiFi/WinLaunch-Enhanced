@@ -74,7 +74,7 @@
               ToolTipService.InitialShowDelay="900"
               PreviewMouseLeftButtonDown="Tile_PreviewMouseDown"
               PreviewMouseLeftButtonUp="Tile_PreviewMouseUp"
-              MouseMove="Tile_MouseMove" MouseEnter="Tile_MouseEnter" DragOver="Tile_DragOver" Drop="Tile_Drop" AllowDrop="True"
+              PreviewMouseMove="Tile_MouseMove" MouseEnter="Tile_MouseEnter"
               ContextMenuOpening="Tile_ContextMenuOpening">
         <Button.ContextMenu>
           <ContextMenu/>
@@ -116,7 +116,7 @@
               ToolTipService.InitialShowDelay="900"
               PreviewMouseLeftButtonDown="Tile_PreviewMouseDown"
               PreviewMouseLeftButtonUp="Tile_PreviewMouseUp"
-              MouseMove="Tile_MouseMove" MouseEnter="Tile_MouseEnter" DragOver="Tile_DragOver" Drop="Tile_Drop" AllowDrop="True"
+              PreviewMouseMove="Tile_MouseMove" MouseEnter="Tile_MouseEnter"
               ContextMenuOpening="Tile_ContextMenuOpening">
         <Button.ContextMenu>
           <ContextMenu/>
@@ -373,6 +373,9 @@
         </Border>
       </StackPanel>
     </Grid>
+
+    <!-- Snapshot of the tile being dragged follows the pointer here. -->
+    <Canvas x:Name="DragLayer" Grid.RowSpan="3" IsHitTestVisible="False"/>
 
     <!-- In-overlay Edit sheet: the original's Edit dialog (icon, name, path,
          arguments, keywords, notes, admin, miniatures) without leaving the overlay. -->

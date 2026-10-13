@@ -7,6 +7,7 @@ using WinLaunch.Legacy;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using WinLaunch.Enhanced.Services;
 using WinLaunch.Enhanced.ViewModels;
@@ -96,6 +97,9 @@ public partial class SpringboardView : UserControl
         };
         _undoTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
         _undoTimer.Tick += (_, _) => HideUndo();
+        MouseMove += Drag_MouseMove;
+        MouseLeftButtonUp += Drag_MouseUp;
+        LostMouseCapture += Drag_LostCapture;
     }
 
     public void Bind(MainViewModel vm)
@@ -223,11 +227,11 @@ public partial class SpringboardView : UserControl
 
     // ---- paging ----
 
-    private void GoToPage(int page)
+    private void GoToPage(int page, bool allowNewPage = false)
     {
         if (VM == null || Searching)
             return;
-        page = Math.Clamp(page, 0, Math.Max(0, VM.PageCount - 1));
+        page = Math.Clamp(page, 0, Math.Max(0, VM.PageCount - (allowNewPage ? 0 : 1)));
         if (page == VM.CurrentPage)
             return;
         int dir = page > VM.CurrentPage ? 1 : -1;
@@ -486,6 +490,13 @@ public partial class SpringboardView : UserControl
 
     private void OnKey(object sender, KeyEventArgs e)
     {
+        if (_drag != null)
+        {
+            if (e.Key == Key.Escape)
+                EndDrag();
+            e.Handled = true;
+            return;
+        }
         if (PromptLayer.Visibility == Visibility.Visible)
         {
             if (e.Key == Key.Escape) { ClosePrompt(); e.Handled = true; }
@@ -1346,6 +1357,26 @@ public partial class SpringboardView : UserControl
     }
 
     // ---- drag and drop ----
+    //
+    // Launchpad-style drag in edit mode: a snapshot of the tile follows the
+    // pointer. Dropping on the middle of an app makes a folder of the two,
+    // on the middle of a folder moves the app inside, anywhere else moves the
+    // tile to that spot. Dragging out of an open folder takes the app out, and
+    // resting at the left or right edge of the board turns the page.
+
+    private sealed class DragState
+    {
+        public ItemViewModel Item;
+        public Button Source;
+        public ItemViewModel FromFolder;
+        public System.Windows.Controls.Image Ghost;
+        public Point Grab;
+        public Button Target;
+        public int EdgeDir;
+    }
+
+    private DragState _drag;
+    private DispatcherTimer _edgeTimer;
 
     private void Tile_PreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
@@ -1361,81 +1392,374 @@ public partial class SpringboardView : UserControl
     private void Tile_PreviewMouseUp(object sender, MouseButtonEventArgs e)
     {
         _holdTimer.Stop();
+        _dragItem = null;
     }
 
     // Focus follows the pointer between tiles, so a keyboard-focused tile never
     // keeps a second plate next to the hovered one. The search box keeps focus.
     private void Tile_MouseEnter(object sender, MouseEventArgs e)
     {
-        if (sender is Button b && !AnyDialogOpen && Keyboard.FocusedElement is Button f &&
+        if (_drag == null && sender is Button b && !AnyDialogOpen && Keyboard.FocusedElement is Button f &&
             f != b && f.Tag is ItemViewModel)
             b.Focus();
     }
 
     private void Tile_MouseMove(object sender, MouseEventArgs e)
     {
-        if (_dragItem == null || e.LeftButton != MouseButtonState.Pressed)
+        if (_drag != null || _dragItem == null || e.LeftButton != MouseButtonState.Pressed)
             return;
         var pos = e.GetPosition(this);
-        bool moved = Math.Abs(pos.X - _dragStart.X) >= SystemParameters.MinimumHorizontalDragDistance ||
-                     Math.Abs(pos.Y - _dragStart.Y) >= SystemParameters.MinimumVerticalDragDistance;
-        if (!moved)
-            return;
-        _holdTimer.Stop();
+        double dx = Math.Abs(pos.X - _dragStart.X), dy = Math.Abs(pos.Y - _dragStart.Y);
+        // Hand jitter while holding should not cancel the press-and-hold.
         if (!VM.EditMode)
+        {
+            if (dx > 10 || dy > 10)
+                _holdTimer.Stop();
             return;
-        var item = _dragItem;
+        }
+        if (dx < SystemParameters.MinimumHorizontalDragDistance && dy < SystemParameters.MinimumVerticalDragDistance)
+            return;
+        if (sender is Button b && !Searching)
+            BeginDrag(b, _dragItem, e);
+    }
+
+    private void BeginDrag(Button source, ItemViewModel item, MouseEventArgs e)
+    {
         _dragItem = null;
-        DragDrop.DoDragDrop((DependencyObject)sender, item, WpfDragDropEffects.Move);
-        _suppressClick = false;
+        _holdTimer.Stop();
+        var fromFolder = ActiveFolder != null && ActiveFolder.Children.Contains(item) ? ActiveFolder : null;
+        // Folders do not nest, so a folder can only be dragged on the board.
+        if (fromFolder == null && !VM.TopItems.Contains(item))
+            return;
+        // Snapshot the icon and name only, not the hover plate behind them.
+        var content = source.Content as FrameworkElement ?? source;
+        var dpi = VisualTreeHelper.GetDpi(this);
+        int w = Math.Max(1, (int)Math.Ceiling(content.ActualWidth * dpi.DpiScaleX));
+        int h = Math.Max(1, (int)Math.Ceiling(content.ActualHeight * dpi.DpiScaleY));
+        var snap = new RenderTargetBitmap(w, h, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+        var flat = new DrawingVisual();
+        using (var ctx = flat.RenderOpen())
+            ctx.DrawRectangle(new VisualBrush(content), null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
+        snap.Render(flat);
+        snap.Freeze();
+        var ghost = new System.Windows.Controls.Image
+        {
+            Source = snap, Width = content.ActualWidth, Height = content.ActualHeight, Opacity = 0.92,
+            IsHitTestVisible = false, RenderTransformOrigin = new Point(0.5, 0.5),
+            RenderTransform = new ScaleTransform(1.08, 1.08),
+        };
+        DragLayer.Children.Add(ghost);
+        _drag = new DragState
+        {
+            Item = item, Source = source, FromFolder = fromFolder, Ghost = ghost,
+            Grab = e.GetPosition(content),
+        };
+        source.Opacity = 0;
+        Mouse.Capture(this, CaptureMode.Element);
+        MoveGhost(e.GetPosition(DragLayer));
+        _suppressClick = true;
     }
 
-    private void Tile_DragOver(object sender, DragEventArgs e)
+    private void MoveGhost(Point p)
     {
-        e.Effects = e.Data.GetDataPresent(typeof(ItemViewModel)) ? WpfDragDropEffects.Move : WpfDragDropEffects.None;
+        Canvas.SetLeft(_drag.Ghost, p.X - _drag.Grab.X);
+        Canvas.SetTop(_drag.Ghost, p.Y - _drag.Grab.Y);
+    }
+
+    private void Drag_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (_drag == null)
+            return;
+        MoveGhost(e.GetPosition(DragLayer));
+        // Leaving the open folder takes the app out of it onto the board.
+        if (_drag.FromFolder != null && FolderLayer.Visibility == Visibility.Visible && !OverFolderBand(e))
+            CloseFolder(animate: false);
+        var (target, merge) = HitTile(e);
+        SetDropTarget(merge ? target : null);
+        UpdateEdgePaging(e);
         e.Handled = true;
     }
 
-    private void Tile_Drop(object sender, DragEventArgs e)
+    private void Drag_MouseUp(object sender, MouseButtonEventArgs e)
     {
-        if (!e.Data.GetDataPresent(typeof(ItemViewModel)))
-            return;
-        var source = (ItemViewModel)e.Data.GetData(typeof(ItemViewModel));
-        if (sender is not Button b || b.Tag is not ItemViewModel target || source == target)
+        if (_drag == null)
             return;
         e.Handled = true;
-        bool sourceTop = VM.TopItems.Contains(source);
-        bool targetTop = VM.TopItems.Contains(target);
-        if (target.IsFolder && targetTop && sourceTop && !source.IsFolder)
+        var (target, merge) = HitTile(e);
+        int slot = SlotAt(e);
+        var drag = _drag;
+        EndDrag();
+        try { DropTile(drag, target, merge, slot); }
+        catch (Exception ex) { App.Trace("drop failed: " + ex.Message); }
+    }
+
+    // Only the board's own capture counts; the tile's capture ends when the drag takes over.
+    private void Drag_LostCapture(object sender, MouseEventArgs e)
+    {
+        if (_drag != null && e.OriginalSource == this)
+            EndDrag();
+    }
+
+    private void EndDrag()
+    {
+        var drag = _drag;
+        _drag = null;
+        _edgeTimer?.Stop();
+        if (drag == null)
+            return;
+        SetDropTarget(null, drag);
+        DragLayer.Children.Clear();
+        drag.Source.Opacity = 1;
+        if (Mouse.Captured == this)
+            Mouse.Capture(null);
+        Dispatcher.BeginInvoke(new Action(() => _suppressClick = false), DispatcherPriority.Input);
+    }
+
+    private bool OverFolderBand(MouseEventArgs e)
+    {
+        var p = e.GetPosition(FolderBand);
+        const double slack = 24;
+        return p.X >= -slack && p.Y >= -slack - 60 && p.X <= FolderBand.ActualWidth + slack &&
+               p.Y <= FolderBand.ActualHeight + slack;
+    }
+
+    // The tile under the pointer, and whether the pointer is over the middle of
+    // its icon (merge) rather than its edge (move next to it).
+    private (ItemViewModel tile, bool merge) HitTile(MouseEventArgs e)
+    {
+        var host = FolderLayer.Visibility == Visibility.Visible ? (FrameworkElement)FolderGrid : TileGrid;
+        ItemViewModel found = null;
+        Button button = null;
+        var p = e.GetPosition(host);
+        VisualTreeHelper.HitTest(host, null, r =>
         {
-            // Drop onto a folder: move the app inside it.
-            VM.TopItems.Remove(source);
-            target.Model.Items ??= new List<WinLaunch.Legacy.ICItem>();
-            target.Model.Items.Add(source.Model);
-            target.Children.Add(source);
+            for (var cur = r.VisualHit; cur != null && cur != host; cur = VisualTreeHelper.GetParent(cur))
+                if (cur is Button b && b.Tag is ItemViewModel item && b != _drag?.Source && b.Style != null &&
+                    b.ActualWidth > 30)
+                {
+                    found = item;
+                    button = b;
+                    return HitTestResultBehavior.Stop;
+                }
+            return HitTestResultBehavior.Continue;
+        }, new PointHitTestParameters(p));
+        if (found == null || found == _drag?.Item)
+            return (null, false);
+        var local = e.GetPosition(button);
+        double icon = (double)Resources["TileIconSize"];
+        double cx = button.ActualWidth / 2, cy = (button.ActualHeight - icon) / 2 + icon * 0.42;
+        bool merge = Math.Abs(local.X - cx) < icon * 0.42 && Math.Abs(local.Y - cy) < icon * 0.5;
+        _hitButton = button;
+        return (found, merge);
+    }
+
+    private Button _hitButton;
+
+    // Highlights the tile the drop would merge into.
+    private void SetDropTarget(ItemViewModel tile, DragState drag = null)
+    {
+        drag ??= _drag;
+        if (drag == null)
+            return;
+        var next = tile != null && CanMerge(drag, tile) ? _hitButton : null;
+        if (drag.Target == next)
+            return;
+        drag.Target?.ClearValue(BackgroundProperty);
+        drag.Target = next;
+        next?.SetResourceReference(BackgroundProperty, "GlassHoverBrush");
+    }
+
+    private bool CanMerge(DragState drag, ItemViewModel tile)
+    {
+        if (drag.Item.IsFolder || FolderLayer.Visibility == Visibility.Visible)
+            return false;
+        return VM.TopItems.Contains(tile);
+    }
+
+    // Board cell under the pointer as an index into the current page, or -1.
+    private int SlotAt(MouseEventArgs e)
+    {
+        if (FolderLayer.Visibility == Visibility.Visible)
+            return -1;
+        var p = e.GetPosition(TileGrid);
+        double cw = (double)Resources["TileCellWidth"], ch = (double)Resources["TileCellHeight"];
+        int cols = Math.Max(1, VM.Settings.Columns), rows = Math.Max(1, VM.Settings.Rows);
+        int col = (int)Math.Floor(p.X / cw), row = (int)Math.Floor(p.Y / ch);
+        col = Math.Clamp(col, 0, cols - 1);
+        if (row < 0)
+            return 0;
+        if (row >= rows)
+            return int.MaxValue;
+        // Right half of a cell means "after this tile".
+        int slot = row * cols + col;
+        if (p.X - col * cw > cw / 2)
+            slot++;
+        return slot;
+    }
+
+    private void UpdateEdgePaging(MouseEventArgs e)
+    {
+        int dir = 0;
+        if (FolderLayer.Visibility != Visibility.Visible)
+        {
+            var x = e.GetPosition(this).X;
+            if (x < 36) dir = -1;
+            else if (x > ActualWidth - 36) dir = 1;
         }
-        else if (sourceTop && targetTop)
+        if (dir == _drag.EdgeDir)
+            return;
+        _drag.EdgeDir = dir;
+        _edgeTimer ??= CreateEdgeTimer();
+        _edgeTimer.Stop();
+        if (dir != 0)
+            _edgeTimer.Start();
+    }
+
+    private DispatcherTimer CreateEdgeTimer()
+    {
+        var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(650) };
+        t.Tick += (_, _) =>
         {
-            (target.Model.GridIndex, source.Model.GridIndex) = (source.Model.GridIndex, target.Model.GridIndex);
-            (target.Model.Page, source.Model.Page) = (source.Model.Page, target.Model.Page);
-        }
-        else if (ActiveFolder != null && ActiveFolder.Children.Contains(source) &&
-                 ActiveFolder.Children.Contains(target))
+            if (_drag == null || _drag.EdgeDir == 0)
+            {
+                t.Stop();
+                return;
+            }
+            // One empty page past the last lets a tile start a new page.
+            int last = VM.PageCount - (VM.TopItems.Any(i => i.Model.Page == VM.PageCount - 1 && i != _drag.Item) ? 0 : 1);
+            int page = Math.Clamp(VM.CurrentPage + _drag.EdgeDir, 0, Math.Max(0, last));
+            if (page != VM.CurrentPage)
+                GoToPage(page, allowNewPage: true);
+        };
+        return t;
+    }
+
+    private void DropTile(DragState drag, ItemViewModel target, bool merge, int slot)
+    {
+        var item = drag.Item;
+        // Out of a folder: the folder is closed by now, so the app goes on the board.
+        if (drag.FromFolder != null && FolderLayer.Visibility != Visibility.Visible)
         {
-            // Reorder inside the open folder.
-            var kids = ActiveFolder.Children;
-            int to = kids.IndexOf(target);
-            kids.Move(kids.IndexOf(source), to);
-            ActiveFolder.Model.Items.Remove(source.Model);
-            ActiveFolder.Model.Items.Insert(to, source.Model);
-        }
-        else
-        {
+            var folder = drag.FromFolder;
+            folder.Children.Remove(item);
+            folder.Model.Items.Remove(item.Model);
+            if (folder.Children.Count == 0)
+                VM.TopItems.Remove(folder);
+            else
+                folder.LoadIcon();
+            item.Model.Page = VM.CurrentPage;
+            var vm = new ItemViewModel(item.Model, VM.Store, VM.IconCacheDir);
+            vm.RefreshTarget();
+            vm.LoadIcon();
+            VM.TopItems.Add(vm);
+            item = vm;
+            if (merge && target != null && VM.TopItems.Contains(target))
+            {
+                MergeInto(item, target);
+                return;
+            }
+            PlaceOnPage(item, slot);
             return;
         }
+        // Reorder inside the open folder.
+        if (drag.FromFolder != null)
+        {
+            var kids = drag.FromFolder.Children;
+            int to = target != null && kids.Contains(target) ? kids.IndexOf(target) : kids.Count - 1;
+            int from = kids.IndexOf(item);
+            if (from < 0 || from == to)
+                return;
+            kids.Move(from, to);
+            drag.FromFolder.Model.Items = kids.Select(k => k.Model).ToList();
+            for (int i = 0; i < kids.Count; i++)
+                kids[i].Model.GridIndex = i;
+            drag.FromFolder.NotifyEdited();
+            Commit();
+            return;
+        }
+        if (merge && target != null && CanMerge(drag, target))
+        {
+            MergeInto(item, target);
+            return;
+        }
+        PlaceOnPage(item, slot);
+    }
+
+    // App onto app makes a new folder in the target's place; app onto a
+    // folder moves it inside.
+    private void MergeInto(ItemViewModel item, ItemViewModel target)
+    {
+        if (target.IsFolder)
+        {
+            VM.TopItems.Remove(item);
+            target.Model.Items ??= new List<ICItem>();
+            item.Model.Page = 0;
+            item.Model.GridIndex = target.Model.Items.Count;
+            target.Model.Items.Add(item.Model);
+            var child = new ItemViewModel(item.Model, VM.Store, VM.IconCacheDir, $"in {target.Name}");
+            child.RefreshTarget();
+            child.LoadIcon();
+            target.Children.Add(child);
+            target.LoadIcon();
+            Commit();
+            return;
+        }
+        var folderModel = new ICItem
+        {
+            IsFolder = true, Name = "New folder", Page = target.Model.Page, GridIndex = target.Model.GridIndex,
+            Items = new List<ICItem> { target.Model, item.Model },
+        };
+        target.Model.Page = 0;
+        target.Model.GridIndex = 0;
+        item.Model.Page = 0;
+        item.Model.GridIndex = 1;
+        VM.TopItems.Remove(target);
+        VM.TopItems.Remove(item);
+        var folder = new ItemViewModel(folderModel, VM.Store, VM.IconCacheDir);
+        folder.LoadIcon();
+        VM.TopItems.Add(folder);
+        Commit();
+        // Open it with the name selected, as Launchpad does, so typing renames it.
+        OpenFolder(folder);
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            FolderTitle.Focus();
+            FolderTitle.SelectAll();
+        }), DispatcherPriority.Input);
+    }
+
+    // Moves a board tile to a cell on the current page. Other tiles on that
+    // page shift to make room; a full page pushes its last tile onward.
+    private void PlaceOnPage(ItemViewModel item, int slot)
+    {
+        int page = VM.CurrentPage;
+        var onPage = VM.TopItems.Where(i => i.Model.Page == page && i != item)
+            .OrderBy(i => i.Model.GridIndex).ToList();
+        onPage.Insert(Math.Clamp(slot, 0, onPage.Count), item);
+        for (int i = 0; i < onPage.Count; i++)
+        {
+            onPage[i].Model.Page = page;
+            onPage[i].Model.GridIndex = i;
+        }
+        VM.EnforceCapacity();
+        Commit();
+    }
+
+    private void Commit()
+    {
         VM.RequestSave();
+        VM.RecountPages();
         VM.RefreshPage();
+        VM.RefreshSearch();
         Refresh();
+    }
+
+    // Files dropped from Explorer become tiles; internal tile drags never use OLE.
+    protected override void OnDragOver(DragEventArgs e)
+    {
+        base.OnDragOver(e);
+        e.Effects = e.Data.GetDataPresent(WpfDataFormats.FileDrop) ? WpfDragDropEffects.Copy : WpfDragDropEffects.None;
+        e.Handled = true;
     }
 
     protected override void OnDrop(DragEventArgs e)

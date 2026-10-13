@@ -42,6 +42,8 @@ public static class Program
             if (args[i] == "--route-test") routeTest = true;
         }
         SpringboardView.AnimationsOff = true;
+        if (args.Contains("--drag-test") && dataDir != null)
+            return DragTest.Run(app, dataDir);
 
         try
         {
@@ -343,7 +345,7 @@ public static class Program
     private static ICItem NewApp(string name, string path, int index) =>
         new ICItem { Name = name, Application = path, Page = 0, GridIndex = index };
 
-    private static void CopyDir(string src, string dest)
+    internal static void CopyDir(string src, string dest)
     {
         Directory.CreateDirectory(dest);
         foreach (var file in Directory.GetFiles(src))
@@ -352,7 +354,7 @@ public static class Program
             CopyDir(dir, Path.Combine(dest, Path.GetFileName(dir)));
     }
 
-    private static void PumpUntilIcons(Dispatcher d, MainViewModel vm, int budgetMs)
+    internal static void PumpUntilIcons(Dispatcher d, MainViewModel vm, int budgetMs)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         while (sw.ElapsedMilliseconds < budgetMs)
@@ -370,7 +372,7 @@ public static class Program
         Pump(d, 500);
     }
 
-    private static void Pump(Dispatcher d, int ms)
+    internal static void Pump(Dispatcher d, int ms)
     {
         var frame = new DispatcherFrame();
         var timer = new DispatcherTimer(DispatcherPriority.Background, d)
