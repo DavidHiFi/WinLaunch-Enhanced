@@ -142,7 +142,7 @@ public static class ThemeManager
         r["DeleteBadgeBrush"] = new SolidColorBrush(t.Dark ? WpfColor.FromRgb(0x6C, 0x70, 0x86) : WpfColor.FromRgb(0x8C, 0x8F, 0xA1));
         if (WpfApplication.Current.MainWindow != null)
             (WpfApplication.Current.MainWindow as MainWindow)?.ReapplyComposition();
-        try { File.WriteAllText(Path.Combine(store.Directory, "theme.mode"), CurrentTheme); }
+        try { SafeFile.WriteText(Path.Combine(store.Directory, "theme.mode"), CurrentTheme); }
         catch { }
     }
 
@@ -192,7 +192,7 @@ public static class ThemeManager
     public static void SaveBackdrop(LegacyStore store, string mode)
     {
         CurrentBackdrop = mode;
-        try { File.WriteAllText(Path.Combine(store.Directory, "backdrop.mode"), mode); }
+        try { SafeFile.WriteText(Path.Combine(store.Directory, "backdrop.mode"), mode); }
         catch { }
     }
 

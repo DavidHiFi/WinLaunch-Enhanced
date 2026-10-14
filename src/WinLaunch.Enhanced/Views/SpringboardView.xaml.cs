@@ -204,6 +204,12 @@ public partial class SpringboardView : UserControl
         NoResults.Visibility = ok && searching && VM.SearchResults.Count == 0
             ? Visibility.Visible : Visibility.Collapsed;
         TileGrid.Visibility = ok ? Visibility.Visible : Visibility.Collapsed;
+        if (ok && VM.RecoveryNote != null)
+        {
+            var note = VM.RecoveryNote;
+            VM.RecoveryNote = null;
+            ShowNotice("Your apps were restored from a backup", note);
+        }
         RefreshDots();
     }
 

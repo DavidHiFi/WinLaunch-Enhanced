@@ -33,6 +33,12 @@ Enhanced reads and writes the same files as WinLaunch 0.7.x, in the same place
 - The blur preference in your `theme.xml` is used until you pick a background.
 - Every save first copies the previous `Items.xml` into `ICBackup\` and keeps the
   last 10.
+- Saves are crash-safe: the new file is written and flushed to disk before it
+  replaces the old one, so a power cut or forced restart mid-save leaves the old
+  file intact. If `Items.xml` is ever empty or damaged anyway, Enhanced restores
+  the newest readable copy from `ICBackup\`, tells you, and keeps the damaged
+  file as `Unreadable-Items-*.xml`. `Settings.xml` keeps its last good copy as
+  `Settings.xml.bak`.
 - Opening Enhanced does not reorder anything. Saved positions stay as they are
   until you move a tile.
 

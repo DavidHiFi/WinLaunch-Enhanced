@@ -49,9 +49,7 @@ public sealed class EnhancedPrefs
     {
         try
         {
-            var tmp = _path + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(this, Json));
-            File.Move(tmp, _path, overwrite: true);
+            WinLaunch.Legacy.SafeFile.WriteText(_path, JsonSerializer.Serialize(this, Json));
         }
         catch { }
     }

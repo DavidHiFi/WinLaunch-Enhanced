@@ -39,57 +39,136 @@ public sealed class LegacyStore
         System.IO.Directory.CreateDirectory(Directory);
     }
 
+    // Last good Settings.xml, kept beside it on every save.
+    public string SettingsBackupPath => SettingsPath + ".bak";
+
+    // Set when LoadItems found Items.xml unreadable and restored a backup:
+    // the backup file it used. Null after a normal load.
+    public string RecoveredItemsFrom { get; private set; }
+
     public List<ICItem> LoadItems()
     {
+        RecoveredItemsFrom = null;
         if (!File.Exists(ItemsPath))
             return new List<ICItem>();
-        using var fs = new FileStream(ItemsPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        using var reader = XmlReader.Create(fs);
-        var ser = new XmlSerializer(typeof(List<ICItem>));
-        return (List<ICItem>)ser.Deserialize(reader);
+        try
+        {
+            return ReadXml<List<ICItem>>(ItemsPath);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or XmlException)
+        {
+            // Empty or damaged file. Restore the newest backup that reads
+            // cleanly and has apps in it (an empty board only if no backup
+            // has any); keep the damaged file aside instead of deleting it.
+            FileInfo chosen = null;
+            List<ICItem> items = null;
+            foreach (var backup in ItemBackupsNewestFirst())
+            {
+                List<ICItem> read;
+                try { read = ReadXml<List<ICItem>>(backup.FullName); }
+                catch { continue; }
+                if (chosen == null || (items.Count == 0 && read.Count > 0))
+                {
+                    chosen = backup;
+                    items = read;
+                }
+                if (items.Count > 0)
+                    break;
+            }
+            if (chosen == null)
+                throw;
+            var stamp = DateTime.Now.ToString("yyyy-MM-dd-HHmmss");
+            try { File.Copy(ItemsPath, Path.Combine(BackupDir, $"Unreadable-Items-{stamp}.xml"), overwrite: true); }
+            catch { }
+            // If the repaired file cannot be written now (read-only, held open),
+            // the apps still load; the next save writes it.
+            try { SafeFile.Write(ItemsPath, s => { using var src = File.OpenRead(chosen.FullName); src.CopyTo(s); }); }
+            catch { }
+            RecoveredItemsFrom = chosen.FullName;
+            return items;
+        }
     }
 
     public LegacySettings LoadSettings()
     {
-        if (!File.Exists(SettingsPath))
-            return new LegacySettings();
-        try
+        foreach (var path in new[] { SettingsPath, SettingsBackupPath })
         {
-            using var fs = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var reader = XmlReader.Create(fs);
-            var ser = new XmlSerializer(typeof(LegacySettings));
-            return (LegacySettings)ser.Deserialize(reader);
+            if (!File.Exists(path))
+                continue;
+            try { return ReadXml<LegacySettings>(path); }
+            catch { }
         }
-        catch
-        {
-            return new LegacySettings();
-        }
+        return new LegacySettings();
     }
 
-    // Saves with a pre-write backup of the previous file, pruned to the 10 newest.
+    // Saves with a pre-write backup of the previous file, pruned to the 10
+    // newest. Only a readable file is backed up, so a damaged one can never
+    // push the good copies out.
     public void SaveItems(List<ICItem> items)
     {
-        System.IO.Directory.CreateDirectory(BackupDir);
-        if (File.Exists(ItemsPath))
+        // Under the write lock, so a background save and a direct save cannot
+        // collide on the same per-second backup name.
+        lock (SafeFile.Sync)
         {
-            var stamp = DateTime.Now.ToString("yyyy-MM-dd-HHmmss");
-            File.Copy(ItemsPath, Path.Combine(BackupDir, $"Items-{stamp}.xml"), overwrite: true);
-            foreach (var old in new DirectoryInfo(BackupDir).GetFiles("Items-*.xml")
-                         .OrderByDescending(f => f.Name).Skip(10))
+            System.IO.Directory.CreateDirectory(BackupDir);
+            if (IsReadable<List<ICItem>>(ItemsPath))
             {
-                try { old.Delete(); } catch { }
+                var stamp = DateTime.Now.ToString("yyyy-MM-dd-HHmmss");
+                try
+                {
+                    File.Copy(ItemsPath, Path.Combine(BackupDir, $"Items-{stamp}.xml"), overwrite: true);
+                    foreach (var old in ItemBackupsNewestFirst().Skip(10))
+                    {
+                        try { old.Delete(); } catch { }
+                    }
+                }
+                catch { } // a missed backup must not cost the save itself
             }
+            SafeFile.Write(ItemsPath, s => WriteXml(s, items));
         }
-        using var fs = new FileStream(ItemsPath, FileMode.Create);
-        using var writer = XmlWriter.Create(fs, new XmlWriterSettings { Indent = false });
-        new XmlSerializer(typeof(List<ICItem>)).Serialize(writer, items);
     }
 
     public void SaveSettings(LegacySettings settings)
     {
-        using var fs = new FileStream(SettingsPath, FileMode.Create);
-        using var writer = XmlWriter.Create(fs, new XmlWriterSettings { Indent = false });
-        new XmlSerializer(typeof(LegacySettings)).Serialize(writer, settings);
+        lock (SafeFile.Sync)
+        {
+            if (IsReadable<LegacySettings>(SettingsPath))
+            {
+                try { File.Copy(SettingsPath, SettingsBackupPath, overwrite: true); }
+                catch { }
+            }
+            SafeFile.Write(SettingsPath, s => WriteXml(s, settings));
+        }
+    }
+
+    // Newest first by when the copied file was last written (File.Copy keeps
+    // that time), so the order survives clock changes such as the
+    // daylight-saving hour; the name breaks ties.
+    private IEnumerable<FileInfo> ItemBackupsNewestFirst() =>
+        System.IO.Directory.Exists(BackupDir)
+            ? new DirectoryInfo(BackupDir).GetFiles("Items-*.xml")
+                .OrderByDescending(f => f.LastWriteTimeUtc).ThenByDescending(f => f.Name)
+            : Enumerable.Empty<FileInfo>();
+
+    private static T ReadXml<T>(string path)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var reader = XmlReader.Create(fs);
+        return (T)new XmlSerializer(typeof(T)).Deserialize(reader);
+    }
+
+    private static bool IsReadable<T>(string path)
+    {
+        if (!File.Exists(path))
+            return false;
+        try { ReadXml<T>(path); return true; }
+        catch { return false; }
+    }
+
+    private static void WriteXml<T>(Stream s, T value)
+    {
+        using var writer = XmlWriter.Create(s, new XmlWriterSettings { Indent = false });
+        new XmlSerializer(typeof(T)).Serialize(writer, value);
     }
 
     // An absolute URI with a real scheme (https, mailto, steam, ...). File and

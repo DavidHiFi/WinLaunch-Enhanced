@@ -1,5 +1,6 @@
 using System.IO;
 using System.IO.Compression;
+using WinLaunch.Legacy;
 
 namespace WinLaunch.Enhanced.Services;
 
@@ -12,11 +13,9 @@ public static class BackupService
 
     public static void Export(string dataDir, string zipPath)
     {
-        var tmp = zipPath + ".tmp";
-        if (File.Exists(tmp))
-            File.Delete(tmp);
-        using (var zip = ZipFile.Open(tmp, ZipArchiveMode.Create))
+        SafeFile.Write(zipPath, s =>
         {
+            using var zip = new ZipArchive(s, ZipArchiveMode.Create, leaveOpen: true);
             foreach (var file in Directory.EnumerateFiles(dataDir))
             {
                 var name = Path.GetFileName(file);
@@ -24,8 +23,7 @@ public static class BackupService
                     continue;
                 zip.CreateEntryFromFile(file, name, CompressionLevel.Optimal);
             }
-        }
-        File.Move(tmp, zipPath, overwrite: true);
+        });
     }
 
     // Checks the file first, saves the current setup to safetyDir, then unpacks over the data folder.
@@ -46,7 +44,7 @@ public static class BackupService
         {
             if (string.IsNullOrEmpty(entry.Name))
                 continue;
-            entry.ExtractToFile(Path.Combine(dataDir, entry.Name), overwrite: true);
+            SafeFile.Write(Path.Combine(dataDir, entry.Name), s => { using var e = entry.Open(); e.CopyTo(s); });
         }
     }
 }

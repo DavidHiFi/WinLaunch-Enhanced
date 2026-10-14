@@ -63,6 +63,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         private set { _loadError = value; OnPropertyChanged(); }
     }
 
+    // Shown once when the last load restored Items.xml from a backup.
+    public string RecoveryNote { get; set; }
+
     public bool IsEmpty => !IsLoading && LoadError == null && TopItems.Count == 0;
 
     private CancellationTokenSource _saveCts = new();
@@ -82,6 +85,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             Settings = Store.LoadSettings();
             var raw = Store.LoadItems();
+            if (Store.RecoveredItemsFrom != null)
+                RecoveryNote = $"Items.xml could not be read, so WinLaunch restored your apps from the backup " +
+                    $"{Path.GetFileName(Store.RecoveredItemsFrom)}. Changes made after that backup may be missing.";
             TopItems.Clear();
             foreach (var item in raw.OrderBy(i => i.Page).ThenBy(i => i.GridIndex))
             {
@@ -274,6 +280,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public void SaveNow()
     {
+        // After a failed load the board is empty; saving it would overwrite
+        // the user's file with nothing.
+        if (LoadError != null)
+            return;
         // Writes models with the indices they carry. Untouched items keep the
         // exact values the original app wrote, so merely opening Enhanced
         // never reorders anyone's layout.
