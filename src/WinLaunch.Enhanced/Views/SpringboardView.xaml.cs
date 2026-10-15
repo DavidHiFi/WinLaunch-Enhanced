@@ -886,9 +886,10 @@ public partial class SpringboardView : UserControl
             items.Add(always);
             if (item.ResolvedTarget != null && !LegacyStore.IsUrl(item.ResolvedTarget))
             {
-                // Packaged apps resolve empty: reveal their cached .lnk, the
-                // file that actually launches them, instead of a dead command.
-                var reveal = string.IsNullOrEmpty(item.ResolvedTarget)
+                // Packaged apps resolve empty and MSI advertised shortcuts
+                // point at an Installer-cache stub: reveal their cached .lnk,
+                // the file that actually launches them, instead of a dead path.
+                var reveal = VM.Store.IsShellLaunchLink(item.Model.Application, item.ResolvedTarget)
                     ? VM.Store.CachedLinkPath(item.Model.Application)
                     : item.ResolvedTarget;
                 items.Add(Item("Open file location", () => RevealInExplorer(reveal), null, ""));
@@ -1074,10 +1075,12 @@ public partial class SpringboardView : UserControl
         item.RefreshTarget();
         EditTitle.Text = item.IsFolder ? "Edit folder" : "Edit app";
         EditName.Text = m.Name ?? "";
-        // Packaged apps resolve to an empty string: show the cached .lnk they
-        // run, so the location is never a blank field (the original fell back
-        // to the stored reference the same way).
-        if (!string.IsNullOrEmpty(item.ResolvedTarget))
+        // Packaged apps resolve to an empty string and MSI advertised
+        // shortcuts to an Installer-cache stub: show the cached .lnk they
+        // run, so the location is never a blank field or a dead stub path
+        // (the original fell back to the stored reference the same way).
+        if (!string.IsNullOrEmpty(item.ResolvedTarget) &&
+            !VM.Store.IsShellLaunchLink(m.Application, item.ResolvedTarget))
             _editOriginalPath = item.ResolvedTarget;
         else if (m.Application != null && (Path.IsPathRooted(m.Application) || LegacyStore.IsUrl(m.Application)))
             _editOriginalPath = m.Application;

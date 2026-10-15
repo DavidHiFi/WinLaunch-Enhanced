@@ -201,6 +201,38 @@ public sealed class LegacyStore
         return lnk != null && File.Exists(lnk);
     }
 
+    // True when a resolved target lives inside the Windows Installer cache
+    // (%WINDIR%\Installer\{ProductCode}\...). Those paths come from MSI
+    // "advertised" shortcuts: the file there is a stub the Installer service
+    // resolves at launch, so starting it directly fails with
+    // ERROR_BAD_EXE_FORMAT ("not a valid application for this OS platform").
+    // The cached .lnk itself must be launched and let the shell resolve it.
+    public static bool IsAdvertisedTarget(string target)
+    {
+        if (string.IsNullOrEmpty(target))
+            return false;
+        var windir = Environment.GetEnvironmentVariable("WINDIR");
+        if (string.IsNullOrEmpty(windir))
+            windir = Path.Combine(Environment.GetEnvironmentVariable("SystemDrive") ?? "C:", "Windows");
+        var cache = Path.Combine(windir, "Installer");
+        if (target.StartsWith(cache + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+            target.StartsWith(cache + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            return true;
+        // Fallback for unusual layouts: an \Installer\{GUID}\ path is the
+        // advertised-shortcut signature.
+        return target.IndexOf(@"\Installer\{", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    // True when the entry must be launched via its cached .lnk: packaged apps
+    // (shell:AppsFolder, empty target) and MSI advertised shortcuts
+    // (Installer cache target). Both are shell-owned; the resolved path is
+    // not directly runnable.
+    public bool IsShellLaunchLink(string application, string resolvedTarget)
+    {
+        return IsCachedLink(application) &&
+            (string.IsNullOrEmpty(resolvedTarget) || IsAdvertisedTarget(resolvedTarget));
+    }
+
     // Resolves a LinkCache entry (a GUID-named .lnk) to its real target.
     // Returns null when the entry is missing or unresolvable; callers treat
     // the tile as broken and offer removal, never a silent dead control.

@@ -11,29 +11,23 @@ public static class LauncherService
     public static void Launch(ICItem item, LegacyStore store, bool asAdmin = false)
     {
         var target = store.ResolveLinkTarget(item.Application);
-        // Packaged-app shortcuts (shell:AppsFolder) resolve to an empty target;
-        // like the original, start the cached .lnk itself and let the shell
-        // resolve the app.
-        if (string.IsNullOrEmpty(target) && store.IsCachedLink(item.Application))
-        {
-            var lnkPsi = new ProcessStartInfo
-            {
-                FileName = store.CachedLinkPath(item.Application),
-                Arguments = item.Arguments ?? "",
-                UseShellExecute = true,
-            };
-            if (item.RunAsAdmin || asAdmin)
-                lnkPsi.Verb = "runas";
-            Process.Start(lnkPsi);
-            return;
-        }
-        if (target == null)
-            throw new FileNotFoundException($"Target not found for \"{item.Name}\".", item.Application);
         if (LegacyStore.IsUrl(target))
         {
             Process.Start(new ProcessStartInfo { FileName = target, UseShellExecute = true });
             return;
         }
+        // Shell-owned shortcuts (.lnk in the LinkCache) are launched through
+        // the .lnk itself: packaged apps (shell:AppsFolder, empty target) and
+        // MSI "advertised" shortcuts (a %WINDIR%\Installer\{GUID}\ stub that
+        // is not directly executable). Resolving and starting the stub fails
+        // with ERROR_BAD_EXE_FORMAT, so never put it in ProcessStartInfo.
+        if (store.IsShellLaunchLink(item.Application, target))
+        {
+            LaunchCachedLink(store, item, asAdmin);
+            return;
+        }
+        if (target == null)
+            throw new FileNotFoundException($"Target not found for \"{item.Name}\".", item.Application);
         var psi = new ProcessStartInfo
         {
             FileName = target,
@@ -48,6 +42,33 @@ public static class LauncherService
                 psi.WorkingDirectory = Path.GetDirectoryName(target);
         }
         catch { }
-        Process.Start(psi);
+        try
+        {
+            Process.Start(psi);
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+            when (store.IsCachedLink(item.Application) &&
+                (ex.NativeErrorCode == 193 || ex.NativeErrorCode == 2 || ex.NativeErrorCode == 3))
+        {
+            // The resolved target looked runnable but the OS rejected it
+            // (193 = bad EXE format, 2/3 = missing file): fall back to the
+            // cached .lnk and let the shell resolve it, instead of showing a
+            // cryptic "not a valid application" error.
+            LaunchCachedLink(store, item, asAdmin);
+        }
+    }
+
+    private static void LaunchCachedLink(LegacyStore store, ICItem item, bool asAdmin)
+    {
+        var lnkPsi = new ProcessStartInfo
+        {
+            FileName = store.CachedLinkPath(item.Application),
+            Arguments = item.Arguments ?? "",
+            UseShellExecute = true,
+        };
+        if (item.RunAsAdmin || asAdmin)
+            lnkPsi.Verb = "runas";
+        // No WorkingDirectory override: the shortcut carries its own.
+        Process.Start(lnkPsi);
     }
 }

@@ -34,11 +34,14 @@ foreach (var item in items)
     }
 }
 
-// A packaged-app shortcut (shell:AppsFolder) resolves to an empty target; it is
-// healthy when its cached .lnk exists, matching the app's own judgment.
+// A packaged-app shortcut (shell:AppsFolder) resolves to an empty target, and
+// an MSI "advertised" shortcut resolves to an Installer-cache stub; both are
+// healthy when the cached .lnk exists, matching the app's own judgment.
 static bool Healthy(LegacyStore store, ICItem item)
 {
     var target = store.ResolveLinkTarget(item.Application);
+    if (store.IsShellLaunchLink(item.Application, target))
+        return true;
     if (string.IsNullOrEmpty(target))
         return store.IsCachedLink(item.Application);
     return File.Exists(target) || Directory.Exists(target);

@@ -71,8 +71,10 @@ public static class IconService
             var target = store.ResolveLinkTarget(item.Application);
             // Packaged-app shortcuts (shell:AppsFolder) resolve to an empty
             // target; the shell serves their icon from the cached .lnk itself,
-            // exactly like the original's thumbnail of the cached link.
-            if (string.IsNullOrEmpty(target) && store.IsCachedLink(item.Application))
+            // exactly like the original's thumbnail of the cached link. MSI
+            // "advertised" shortcuts resolve to an Installer-cache stub with
+            // no usable icon either, so use the .lnk there too.
+            if (store.IsShellLaunchLink(item.Application, target))
                 return await Task.Run(() => GetFileIcon(store.CachedLinkPath(item.Application), cacheDir), ct);
             if (target == null)
                 return GetInitialTile(item.Name);
@@ -230,8 +232,9 @@ public static class IconService
             if (k.IsFolder)
                 continue;
             var target = store.ResolveLinkTarget(k.Application);
-            // Packaged apps resolve empty; their cached .lnk still has an icon.
-            if (string.IsNullOrEmpty(target) && store.IsCachedLink(k.Application))
+            // Packaged apps resolve empty, and MSI advertised shortcuts point
+            // at an Installer-cache stub; both draw from the cached .lnk.
+            if (store.IsShellLaunchLink(k.Application, target))
                 target = store.CachedLinkPath(k.Application);
             if (target != null && (File.Exists(target) || Directory.Exists(target)))
                 kids.Add((k, target));

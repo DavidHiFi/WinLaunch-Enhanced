@@ -68,7 +68,14 @@ public sealed class ItemViewModel : INotifyPropertyChanged
         }
         // An empty resolution with an existing cached .lnk is a packaged app
         // (shell:AppsFolder): the shell owns the target, so nothing is missing.
+        // The same holds for MSI "advertised" shortcuts, whose Installer-cache
+        // stub is resolved by the shell at launch, never run directly.
         if (!IsFolder && string.IsNullOrEmpty(ResolvedTarget) && _store.IsCachedLink(Model.Application))
+        {
+            Broken = false;
+            return;
+        }
+        if (!IsFolder && _store.IsShellLaunchLink(Model.Application, ResolvedTarget))
         {
             Broken = false;
             return;
