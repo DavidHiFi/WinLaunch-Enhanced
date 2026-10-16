@@ -158,6 +158,22 @@ dotnet run --project tools/PreviewRender -- --data "%APPDATA%\WinLaunch" --no-se
 - `tools/VerifyData` and `tools/PreviewRender`: the checks above.
 - `DESIGN.md`: palette with measured contrast, and motion rules.
 
+## Contributing
+
+Bug reports, feature ideas and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks and what to include.
+
+## Star history
+
+⭐ Thanks to everyone using WinLaunch Enhanced, reporting pin and layout bugs and sending fixes.
+
+<a href="https://www.star-history.com/?repos=DavidHiFi%2FWinLaunch-Enhanced&amp;type=date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=DavidHiFi/WinLaunch-Enhanced&amp;type=date&amp;theme=dark&amp;legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=DavidHiFi/WinLaunch-Enhanced&amp;type=date" />
+    <img alt="DavidHiFi/WinLaunch-Enhanced GitHub star history" src="https://api.star-history.com/chart?repos=DavidHiFi/WinLaunch-Enhanced&amp;type=date" />
+  </picture>
+</a>
+
 ## License
 
 MIT. The original copyright, (c) 2022 MrC0rrupted, is kept; see LICENSE.
